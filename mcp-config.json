@@ -1,0 +1,80 @@
+{
+  "name": "EarnLayer MCP Server",
+  "version": "1.0.0",
+  "description": "Model Context Protocol server for EarnLayer ad serving",
+  "server": {
+    "name": "earnlayer-ads-server", 
+    "version": "1.0.0"
+  },
+  "capabilities": {
+    "tools": {
+      "earnlayer_content_ads_search": {
+        "description": "Search for relevant ads based on user queries",
+        "parameters": {
+          "conversation_id": "string (required)",
+          "queries": "array of strings (1-3 items, required)",
+          "user_message": "string (optional)",
+          "include_demo_ads": "boolean (optional)",
+          "ad_preferences": "object (optional)"
+        }
+      },
+      "earnlayer_get_display_ads": {
+        "description": "Get display ads for a conversation session",
+        "parameters": {
+          "conversation_id": "string (required)",
+          "placement": "string (optional)",
+          "ad_type": "string (optional)"
+        }
+      }
+    }
+  },
+  "transports": {
+    "stdio": {
+      "command": "npm",
+      "args": ["run", "mcp:server"],
+      "env": {
+        "NODE_ENV": "production"
+      }
+    },
+    "http": {
+      "url": "http://localhost:3000/api/mcp/server",
+      "method": "POST"
+    }
+  },
+  "integration": {
+    "claude_desktop": {
+      "servers": {
+        "earnlayer": {
+          "command": "npm",
+          "args": ["run", "mcp:server"],
+          "cwd": "/Users/casper/x/earnlayer-dev/earnlayer-nextjs"
+        }
+      }
+    },
+    "openrouter": {
+      "mcp_server_url": "http://localhost:3000/api/mcp/server"
+    }
+  },
+  "examples": {
+    "content_search": {
+      "tool": "earnlayer_content_ads_search",
+      "args": {
+        "conversation_id": "123e4567-e89b-12d3-a456-426614174000",
+        "queries": ["AI technology", "cloud computing"],
+        "user_message": "Looking for AI solutions",
+        "ad_preferences": {
+          "similarity_threshold": 0.3,
+          "max_ads": 3
+        }
+      }
+    },
+    "display_ads": {
+      "tool": "earnlayer_get_display_ads", 
+      "args": {
+        "conversation_id": "123e4567-e89b-12d3-a456-426614174000",
+        "placement": "sidebar",
+        "ad_type": "banner"
+      }
+    }
+  }
+}

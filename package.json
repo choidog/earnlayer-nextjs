@@ -3,25 +3,54 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build --turbopack",
-    "start": "next start",
-    "lint": "eslint"
+    "dev": "next dev -p 8000",
+    "build": "next build",
+    "start": "next start -p 8000",
+    "lint": "next lint",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio",
+    "db:push": "drizzle-kit push",
+    "test:setup": "tsx scripts/test-setup.ts",
+    "test:mcp": "tsx scripts/test-mcp.ts",
+    "mcp:server": "tsx src/mcp-server/standalone.ts",
+    "mcp:test": "npm run test:mcp",
+    "mcp:demo": "tsx examples/mcp-client-demo.ts",
+    "test:validate": "tsx scripts/validate-database.ts",
+    "test:comprehensive": "tsx scripts/comprehensive-tests.ts",
+    "test:benchmark": "tsx scripts/performance-benchmark.ts",
+    "test:edge": "tsx scripts/edge-case-tests.ts",
+    "test:all": "npm run test:setup && npm run test:validate && npm run test:comprehensive",
+    "test:full": "npm run test:all && npm run test:edge && npm run test:benchmark",
+    "db:export": "tsx scripts/db-export.ts",
+    "db:import": "tsx scripts/db-import.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.4",
+    "@neondatabase/serverless": "^1.0.1",
+    "better-auth": "^1.3.7",
+    "dotenv": "^17.2.1",
+    "drizzle-kit": "^0.31.4",
+    "drizzle-orm": "^0.44.5",
+    "next": "15.5.2",
+    "openai": "^5.16.0",
+    "pgvector": "^0.2.1",
+    "postgres": "^3.4.7",
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "next": "15.5.2"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8.15.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
     "eslint": "^9",
     "eslint-config-next": "15.5.2",
-    "@eslint/eslintrc": "^3"
+    "pg": "^8.16.3",
+    "tailwindcss": "^4",
+    "typescript": "^5"
   }
 }
