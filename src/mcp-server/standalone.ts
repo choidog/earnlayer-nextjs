@@ -3,8 +3,10 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { mcpServer } from "../lib/mcp/server.js";
 import { config } from "dotenv";
 
-// Load environment variables
-config({ path: ".env.local" });
+// Load environment variables only in development
+if (process.env.NODE_ENV !== "production") {
+  config({ path: ".env.local" });
+}
 
 async function main() {
   console.error("🚀 Starting EarnLayer MCP Server (standalone)");
