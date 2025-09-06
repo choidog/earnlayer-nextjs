@@ -138,6 +138,7 @@ export const ads = pgTable("ads", {
 
 export const creators = pgTable("creators", {
   id: uuid("id").defaultRandom().primaryKey(),
+  userId: text("user_id").references(() => user.id), // Link to Better Auth user
   name: varchar("name", { length: 255 }).notNull(),
   email: varchar("email", { length: 255 }).notNull().unique(),
   bio: text("bio"),
@@ -209,7 +210,8 @@ export const adClicksRelations = relations(adClicks, ({ one }) => ({
   }),
 }));
 
-export const creatorsRelations = relations(creators, ({ many }) => ({
+export const creatorsRelations = relations(creators, ({ one, many }) => ({
+  user: one(user, { fields: [creators.userId], references: [user.id] }), // Link to Better Auth user
   sessions: many(chatSessions),
   impressions: many(adImpressions),
 }));
@@ -333,6 +335,7 @@ export const verification = pgTable("verification", {
 export const userRelations = relations(user, ({ many }) => ({
   accounts: many(account),
   sessions: many(session),
+  creators: many(creators), // Link to creator profiles
 }));
 
 export const accountRelations = relations(account, ({ one }) => ({

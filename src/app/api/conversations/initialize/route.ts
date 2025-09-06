@@ -5,7 +5,8 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 const initializeRequestSchema = z.object({
-  creator_id: z.string().uuid().optional(),
+  creator_id: z.string().uuid().optional(), // Legacy support
+  user_id: z.string().optional(), // Better Auth user ID (preferred)
   visitor_uuid: z.string().nullable().optional(),
   ad_preferences: z.record(z.any()).optional(),
   context: z.string().optional(),
@@ -17,18 +18,48 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const validatedData = initializeRequestSchema.parse(body);
 
-    // Get creator (use specified creator or get first available creator)
+    // Get creator (support both user_id and legacy creator_id)
     let creatorId = validatedData.creator_id;
     let creator;
 
-    if (creatorId) {
+    if (validatedData.user_id) {
+      // Preferred: lookup by user_id
+      console.log("🔍 [INIT] Looking up creator by user_id:", validatedData.user_id);
+      creator = await db
+        .select()
+        .from(creators)
+        .where(eq(creators.userId, validatedData.user_id))
+        .limit(1);
+        
+      if (creator.length > 0) {
+        creatorId = creator[0].id;
+        console.log("✅ [INIT] Found creator by user_id:", { creatorId, userId: validatedData.user_id });
+      } else {
+        console.log("❌ [INIT] No creator found for user_id:", validatedData.user_id);
+        return NextResponse.json(
+          { error: "Creator profile not found for user. Please contact support." },
+          { status: 404 }
+        );
+      }
+    } else if (creatorId) {
+      // Legacy: lookup by creator_id
+      console.log("🔍 [INIT] Looking up creator by creator_id (legacy):", creatorId);
       creator = await db
         .select()
         .from(creators)
         .where(eq(creators.id, creatorId))
         .limit(1);
+        
+      if (creator.length === 0) {
+        console.log("❌ [INIT] Creator not found by creator_id:", creatorId);
+        return NextResponse.json(
+          { error: "Creator not found" },
+          { status: 404 }
+        );
+      }
     } else {
-      // Get first available creator
+      // Fallback: get first available creator (for backward compatibility)
+      console.log("🔍 [INIT] No user_id or creator_id provided, getting first available creator");
       creator = await db
         .select()
         .from(creators)
@@ -36,14 +67,14 @@ export async function POST(request: NextRequest) {
       
       if (creator.length > 0) {
         creatorId = creator[0].id;
+        console.log("✅ [INIT] Using fallback creator:", creatorId);
+      } else {
+        console.log("❌ [INIT] No creators available");
+        return NextResponse.json(
+          { error: "No creators available" },
+          { status: 404 }
+        );
       }
-    }
-
-    if (creator.length === 0) {
-      return NextResponse.json(
-        { error: creatorId ? "Creator not found" : "No creators available" },
-        { status: 404 }
-      );
     }
 
     // Create new chat session
