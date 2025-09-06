@@ -2,7 +2,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { apiKey as apiKeyPlugin } from "better-auth/plugins";
 import { db } from "@/lib/db/connection";
-import { user, account, session, verification, creators } from "@/lib/db/schema";
+import { user, account, session, verification, creators, apikey } from "@/lib/db/schema";
 import crypto from "crypto";
 
 console.log("🔧 Better Auth Config - Loading...");
@@ -21,7 +21,7 @@ const adapter = drizzleAdapter(db, {
     account: account, 
     session: session,
     verification: verification, // Use Better Auth verification table
-    // Let Better Auth handle apiKey table automatically
+    apikey: apikey, // Add official Better Auth API key table
   },
 });
 console.log("✅ Drizzle adapter created successfully");

@@ -12,7 +12,6 @@ import {
   serial,
   integer,
   unique,
-  vector,
   decimal,
   primaryKey,
 } from "drizzle-orm/pg-core";
@@ -331,26 +330,31 @@ export const verification = pgTable("verification", {
     .notNull(),
 });
 
-// Better Auth API Key table (matching Better Auth expected schema)
-export const apiKey = pgTable("apikey", {
+// Better Auth API Key table (official schema from CLI)
+export const apikey = pgTable("apikey", {
   id: text("id").primaryKey(),
   name: text("name"),
-  key: text("key").notNull(), // Better Auth expects "key", not "hashedKey"
-  userId: text("userId") // Better Auth expects "userId", not "user_id"
+  start: text("start"),
+  prefix: text("prefix"),
+  key: text("key").notNull(),
+  userId: text("user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
-  enabled: boolean("enabled").default(true).notNull(), // Better Auth expects "enabled"
-  expiresAt: timestamp("expiresAt"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt")
-    .defaultNow()
-    .$onUpdate(() => new Date())
-    .notNull(),
-  prefix: text("prefix"), // Better Auth field
-  remaining: integer("remaining"), // Better Auth field for rate limiting
-  rateLimitEnabled: boolean("rateLimitEnabled").default(false), // Better Auth field
-  permissions: text("permissions"), // Better Auth expects text, not jsonb
-  metadata: jsonb("metadata"), // Additional key metadata
+  refillInterval: integer("refill_interval"),
+  refillAmount: integer("refill_amount"),
+  lastRefillAt: timestamp("last_refill_at"),
+  enabled: boolean("enabled").default(true),
+  rateLimitEnabled: boolean("rate_limit_enabled").default(true),
+  rateLimitTimeWindow: integer("rate_limit_time_window").default(86400000),
+  rateLimitMax: integer("rate_limit_max").default(10),
+  requestCount: integer("request_count").default(0),
+  remaining: integer("remaining"),
+  lastRequest: timestamp("last_request"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").notNull(),
+  updatedAt: timestamp("updated_at").notNull(),
+  permissions: text("permissions"),
+  metadata: text("metadata"),
 });
 
 // Better Auth Relations
@@ -358,7 +362,7 @@ export const userRelations = relations(user, ({ many }) => ({
   accounts: many(account),
   sessions: many(session),
   creators: many(creators), // Link to creator profiles
-  apiKeys: many(apiKey), // Link to API keys
+  apiKeys: many(apikey), // Link to API keys
 }));
 
 export const accountRelations = relations(account, ({ one }) => ({
@@ -369,8 +373,8 @@ export const sessionRelations = relations(session, ({ one }) => ({
   user: one(user, { fields: [session.userId], references: [user.id] }),
 }));
 
-export const apiKeyRelations = relations(apiKey, ({ one }) => ({
-  user: one(user, { fields: [apiKey.userId], references: [user.id] }),
+export const apikeyRelations = relations(apikey, ({ one }) => ({
+  user: one(user, { fields: [apikey.userId], references: [user.id] }),
 }));
 
 // Type exports
@@ -394,5 +398,5 @@ export type Account = typeof account.$inferSelect;
 export type NewAccount = typeof account.$inferInsert;
 export type Session = typeof session.$inferSelect;
 export type NewSession = typeof session.$inferInsert;
-export type ApiKey = typeof apiKey.$inferSelect;
-export type NewApiKey = typeof apiKey.$inferInsert;
+export type ApiKey = typeof apikey.$inferSelect;
+export type NewApiKey = typeof apikey.$inferInsert;
