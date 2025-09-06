@@ -1,21 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db/connection";
-import { ads, adCampaigns, chatSessions } from "@/lib/db/schema";
+import { ads, adCampaigns, chatSessions, creators } from "@/lib/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 
 /**
  * Developer Ads Queue Endpoint
  * 
  * PRODUCTION MODE (default):
- *   GET /api/developer/ads/queue/{conversationId}?creator_id={id}
+ *   GET /api/developer/ads/queue/{conversationId}?user_id={id}
  *   Returns: Empty array (MCP server controls actual ad serving)
  * 
  * DEBUG MODE:
- *   GET /api/developer/ads/queue/{conversationId}?creator_id={id}&debug=true
+ *   GET /api/developer/ads/queue/{conversationId}?user_id={id}&debug=true
  *   Returns: All available display ads for debugging purposes
  * 
  * ADMIN MODE:
- *   GET /api/developer/ads/queue/{conversationId}?creator_id={id}&admin=true
+ *   GET /api/developer/ads/queue/{conversationId}?user_id={id}&admin=true
  *   Returns: All available display ads with debug metadata for admin inspection
  */
 export async function GET(
@@ -24,7 +24,7 @@ export async function GET(
 ) {
   try {
     const { searchParams } = new URL(request.url);
-    const creatorId = searchParams.get('creator_id');
+    const userId = searchParams.get('user_id');
     const { conversationId } = await params;
 
     if (!conversationId) {
@@ -34,12 +34,28 @@ export async function GET(
       );
     }
 
-    if (!creatorId) {
+    if (!userId) {
       return NextResponse.json(
-        { error: "Creator ID is required" },
+        { error: "User ID is required" },
         { status: 400 }
       );
     }
+
+    // First, find the creator profile for this user
+    const creator = await db
+      .select({ id: creators.id })
+      .from(creators)
+      .where(eq(creators.userId, userId))
+      .limit(1);
+
+    if (creator.length === 0) {
+      return NextResponse.json(
+        { error: "Creator profile not found for user" },
+        { status: 404 }
+      );
+    }
+
+    const creatorId = creator[0].id;
 
     // Verify the conversation exists and belongs to the creator
     const conversation = await db
