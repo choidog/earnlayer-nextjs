@@ -332,7 +332,7 @@ export const verification = pgTable("verification", {
 });
 
 // Better Auth API Key table (matching Better Auth expected schema)
-export const apiKey = pgTable("apiKey", {
+export const apiKey = pgTable("apikey", {
   id: text("id").primaryKey(),
   name: text("name"),
   key: text("key").notNull(), // Better Auth expects "key", not "hashedKey"
