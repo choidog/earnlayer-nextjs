@@ -50,6 +50,13 @@
       "when": 1757132000000,
       "tag": "0006_add_user_id_to_creators",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1757159140182,
+      "tag": "0007_tranquil_scorpion",
+      "breakpoints": true
     }
   ]
 }
