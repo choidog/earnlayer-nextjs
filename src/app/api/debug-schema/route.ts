@@ -1,6 +1,5 @@
-import { db } from "@/lib/db/connection";
-
 export async function GET() {
+  const { db } = await import("@/lib/db/connection");
   try {
     console.log("🔍 Checking database schema...");
     

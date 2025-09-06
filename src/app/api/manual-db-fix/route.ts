@@ -1,6 +1,5 @@
-import { db } from "@/lib/db/connection";
-
 export async function POST() {
+  const { db } = await import("@/lib/db/connection");
   try {
     console.log("🔧 Starting manual database schema fix...");
     
