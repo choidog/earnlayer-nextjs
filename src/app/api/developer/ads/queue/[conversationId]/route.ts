@@ -23,10 +23,16 @@ export async function GET(
   { params }: { params: Promise<{ conversationId: string }> }
 ) {
   try {
+    console.log("🚀 [ADS] Starting ads queue request...");
+    
     const { searchParams } = new URL(request.url);
+    console.log("✅ [ADS] URL parsed successfully");
+    
     const { conversationId } = await params;
+    console.log("✅ [ADS] Params extracted, conversationId:", conversationId);
 
     if (!conversationId) {
+      console.log("❌ [ADS] No conversation ID provided");
       return NextResponse.json(
         { error: "Conversation ID is required" },
         { status: 400 }
@@ -35,6 +41,7 @@ export async function GET(
 
     console.log("🔍 [ADS] Getting ads for conversation:", conversationId);
 
+    console.log("📊 [ADS] Starting database query...");
     // Get conversation and automatically resolve creator
     const conversation = await db
       .select({
@@ -47,6 +54,8 @@ export async function GET(
       .innerJoin(creators, eq(chatSessions.creatorId, creators.id))
       .where(eq(chatSessions.id, conversationId))
       .limit(1);
+    
+    console.log("✅ [ADS] Database query completed, results:", conversation.length);
 
     if (conversation.length === 0) {
       console.log("❌ [ADS] Conversation not found:", conversationId);
@@ -117,9 +126,20 @@ export async function GET(
     return NextResponse.json({ ads: displayAds });
 
   } catch (error) {
-    console.error("Error getting ads queue:", error);
+    console.error("❌ [ADS] Error getting ads queue:", error);
+    console.error("❌ [ADS] Error details:", {
+      message: error.message,
+      stack: error.stack,
+      conversationId
+    });
     return NextResponse.json(
-      { error: "Failed to get ads queue" },
+      { 
+        error: "Failed to get ads queue",
+        debug: process.env.NODE_ENV === 'development' ? {
+          message: error.message,
+          conversationId
+        } : undefined
+      },
       { status: 500 }
     );
   }
