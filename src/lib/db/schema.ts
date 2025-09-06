@@ -331,25 +331,26 @@ export const verification = pgTable("verification", {
     .notNull(),
 });
 
-// Better Auth API Key table
-export const apiKey = pgTable("api_key", {
+// Better Auth API Key table (matching Better Auth expected schema)
+export const apiKey = pgTable("apiKey", {
   id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  hashedKey: text("hashed_key").notNull(),
-  userId: text("user_id")
+  name: text("name"),
+  key: text("key").notNull(), // Better Auth expects "key", not "hashedKey"
+  userId: text("userId") // Better Auth expects "userId", not "user_id"
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
-  expiresAt: timestamp("expires_at"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at")
+  enabled: boolean("enabled").default(true).notNull(), // Better Auth expects "enabled"
+  expiresAt: timestamp("expiresAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt")
     .defaultNow()
     .$onUpdate(() => new Date())
     .notNull(),
-  lastUsedAt: timestamp("last_used_at"),
-  rateLimit: jsonb("rate_limit"), // { window: number, max: number, remaining: number, resetTime: number }
-  permissions: jsonb("permissions"), // Array of permissions
+  prefix: text("prefix"), // Better Auth field
+  remaining: integer("remaining"), // Better Auth field for rate limiting
+  rateLimitEnabled: boolean("rateLimitEnabled").default(false), // Better Auth field
+  permissions: text("permissions"), // Better Auth expects text, not jsonb
   metadata: jsonb("metadata"), // Additional key metadata
-  isActive: boolean("is_active").default(true).notNull(),
 });
 
 // Better Auth Relations
