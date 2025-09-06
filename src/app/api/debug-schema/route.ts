@@ -116,6 +116,22 @@ export async function POST(request: Request) {
       
       const crypto = await import("crypto");
       
+      // First, ensure tables exist by running migration
+      try {
+        console.log('🚀 Ensuring tables exist...');
+        const fs = await import("fs");
+        const path = await import("path");
+        
+        const migrationPath = path.join(process.cwd(), "drizzle/migrations/0007_create_ads_tables.sql");
+        const migrationSQL = fs.readFileSync(migrationPath, "utf8");
+        
+        console.log("📄 Executing migration SQL...");
+        await db.execute(migrationSQL as any);
+        console.log("✅ Tables created/verified");
+      } catch (error) {
+        console.log("⚠️ Migration error (tables might already exist):", error);
+      }
+      
       // Clean up existing demo data
       await db.execute(`DELETE FROM ads WHERE title LIKE '[DEMO]%'` as any);
       await db.execute(`DELETE FROM ad_campaigns WHERE name LIKE '[DEMO]%'` as any);

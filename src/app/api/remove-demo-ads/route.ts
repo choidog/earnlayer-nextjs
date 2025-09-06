@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db/connection";
-import { adCampaigns, ads } from "@/lib/db/schema";
 import { like, or } from "drizzle-orm";
 
 export async function POST(request: NextRequest) {
+  const { db } = await import("@/lib/db/connection");
+  const { adCampaigns, ads } = await import("@/lib/db/schema");
   console.log('🧹 [CLEANUP] Removing all demo ads...');
 
   try {
