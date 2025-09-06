@@ -331,11 +331,33 @@ export const verification = pgTable("verification", {
     .notNull(),
 });
 
+// Better Auth API Key table
+export const apiKey = pgTable("api_key", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  hashedKey: text("hashed_key").notNull(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+  lastUsedAt: timestamp("last_used_at"),
+  rateLimit: jsonb("rate_limit"), // { window: number, max: number, remaining: number, resetTime: number }
+  permissions: jsonb("permissions"), // Array of permissions
+  metadata: jsonb("metadata"), // Additional key metadata
+  isActive: boolean("is_active").default(true).notNull(),
+});
+
 // Better Auth Relations
 export const userRelations = relations(user, ({ many }) => ({
   accounts: many(account),
   sessions: many(session),
   creators: many(creators), // Link to creator profiles
+  apiKeys: many(apiKey), // Link to API keys
 }));
 
 export const accountRelations = relations(account, ({ one }) => ({
@@ -344,6 +366,10 @@ export const accountRelations = relations(account, ({ one }) => ({
 
 export const sessionRelations = relations(session, ({ one }) => ({
   user: one(user, { fields: [session.userId], references: [user.id] }),
+}));
+
+export const apiKeyRelations = relations(apiKey, ({ one }) => ({
+  user: one(user, { fields: [apiKey.userId], references: [user.id] }),
 }));
 
 // Type exports
@@ -367,3 +393,5 @@ export type Account = typeof account.$inferSelect;
 export type NewAccount = typeof account.$inferInsert;
 export type Session = typeof session.$inferSelect;
 export type NewSession = typeof session.$inferInsert;
+export type ApiKey = typeof apiKey.$inferSelect;
+export type NewApiKey = typeof apiKey.$inferInsert;

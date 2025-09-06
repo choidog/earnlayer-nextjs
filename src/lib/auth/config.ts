@@ -1,7 +1,8 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { apiKey as apiKeyPlugin } from "better-auth/plugins";
 import { db } from "@/lib/db/connection";
-import { user, account, session, verification, creators } from "@/lib/db/schema";
+import { user, account, session, verification, creators, apiKey } from "@/lib/db/schema";
 import crypto from "crypto";
 
 console.log("🔧 Better Auth Config - Loading...");
@@ -20,6 +21,7 @@ const adapter = drizzleAdapter(db, {
     account: account, 
     session: session,
     verification: verification, // Use Better Auth verification table
+    apiKey: apiKey, // Add API key table
   },
 });
 console.log("✅ Drizzle adapter created successfully");
@@ -54,6 +56,17 @@ export const auth = betterAuth({
       enabled: true, // Re-enable cookie cache for same-domain setup
     },
   },
+  plugins: [
+    apiKeyPlugin({
+      prefix: "earnlayer_",
+      defaultExpiresIn: 30 * 24 * 60 * 60 * 1000, // 30 days default
+      rateLimitEnabled: true,
+      defaultRateLimit: {
+        window: 60 * 1000, // 1 minute
+        max: 1000 // 1000 requests per minute
+      }
+    })
+  ],
   advanced: {
     useSecureCookies: true,
     crossSubDomainCookies: {
