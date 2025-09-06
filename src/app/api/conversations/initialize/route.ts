@@ -33,6 +33,8 @@ export async function POST(request: NextRequest) {
     console.log("🚀 [INIT] Starting conversation initialization...");
     
     const body = await request.json();
+    console.log("📋 [INIT] Request body:", JSON.stringify(body, null, 2));
+    
     const validatedData = initializeRequestSchema.parse(body);
 
     // Get Better Auth session for auto-creator creation (optional fallback)
@@ -77,7 +79,20 @@ export async function POST(request: NextRequest) {
         if (!userEmail) {
           console.log("❌ [INIT] Cannot auto-create creator without user email");
           return NextResponse.json(
-            { error: "User email required for creator profile creation" },
+            { 
+              error: "Missing required field for creator profile creation",
+              details: {
+                message: "To auto-create a creator profile, the request must include user_email",
+                required_fields: ["user_id", "user_email"],
+                optional_fields: ["user_name"],
+                received_fields: Object.keys(validatedData).filter(key => validatedData[key] !== undefined),
+                example_request: {
+                  user_id: "your_user_id_here",
+                  user_email: "user@example.com",
+                  user_name: "Optional Name"
+                }
+              }
+            },
             { status: 400 }
           );
         }
@@ -175,7 +190,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { 
           error: "Invalid request data", 
-          details: error.errors 
+          details: {
+            message: "The request body contains invalid or missing fields",
+            validation_errors: error.errors,
+            expected_schema: {
+              user_id: "string (required for auto-creator creation)",
+              user_email: "string (required for auto-creator creation)", 
+              user_name: "string (optional)",
+              creator_id: "string (legacy, UUID format)",
+              session_id: "string (optional)",
+              visitor_uuid: "string (optional)",
+              ad_preferences: "object (optional)",
+              context: "string (optional)",
+              metadata: "object (optional)"
+            },
+            example_request: {
+              user_id: "wbxHQnUV3xlo2AeTDnryKar0NZ6zPX9C",
+              user_email: "user@example.com",
+              user_name: "John Doe"
+            }
+          }
         },
         { status: 400 }
       );
