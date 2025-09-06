@@ -4,18 +4,18 @@ import { ads, adCampaigns, chatSessions, creators } from "@/lib/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 
 /**
- * Developer Ads Queue Endpoint
+ * Developer Ads Queue Endpoint (Simplified)
  * 
  * PRODUCTION MODE (default):
- *   GET /api/developer/ads/queue/{conversationId}?user_id={id}
+ *   GET /api/developer/ads/queue/{conversationId}
  *   Returns: Empty array (MCP server controls actual ad serving)
  * 
  * DEBUG MODE:
- *   GET /api/developer/ads/queue/{conversationId}?user_id={id}&debug=true
+ *   GET /api/developer/ads/queue/{conversationId}?debug=true
  *   Returns: All available display ads for debugging purposes
  * 
  * ADMIN MODE:
- *   GET /api/developer/ads/queue/{conversationId}?user_id={id}&admin=true
+ *   GET /api/developer/ads/queue/{conversationId}?admin=true
  *   Returns: All available display ads with debug metadata for admin inspection
  */
 export async function GET(
@@ -24,7 +24,6 @@ export async function GET(
 ) {
   try {
     const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('user_id');
     const { conversationId } = await params;
 
     if (!conversationId) {
@@ -34,47 +33,34 @@ export async function GET(
       );
     }
 
-    if (!userId) {
-      return NextResponse.json(
-        { error: "User ID is required" },
-        { status: 400 }
-      );
-    }
+    console.log("🔍 [ADS] Getting ads for conversation:", conversationId);
 
-    // First, find the creator profile for this user
-    const creator = await db
-      .select({ id: creators.id })
-      .from(creators)
-      .where(eq(creators.userId, userId))
-      .limit(1);
-
-    if (creator.length === 0) {
-      return NextResponse.json(
-        { error: "Creator profile not found for user" },
-        { status: 404 }
-      );
-    }
-
-    const creatorId = creator[0].id;
-
-    // Verify the conversation exists and belongs to the creator
+    // Get conversation and automatically resolve creator
     const conversation = await db
-      .select()
+      .select({
+        id: chatSessions.id,
+        creatorId: chatSessions.creatorId,
+        creator: {
+          id: creators.id,
+          name: creators.name,
+          userId: creators.userId
+        }
+      })
       .from(chatSessions)
-      .where(
-        and(
-          eq(chatSessions.id, conversationId),
-          eq(chatSessions.creatorId, creatorId)
-        )
-      )
+      .innerJoin(creators, eq(chatSessions.creatorId, creators.id))
+      .where(eq(chatSessions.id, conversationId))
       .limit(1);
 
     if (conversation.length === 0) {
+      console.log("❌ [ADS] Conversation not found:", conversationId);
       return NextResponse.json(
         { error: "Conversation not found" },
         { status: 404 }
       );
     }
+
+    const { creatorId } = conversation[0];
+    console.log("✅ [ADS] Found conversation for creator:", { conversationId, creatorId });
 
     // ADMIN/DEBUG MODE: Check if this is an admin/debug request
     const isDebugMode = searchParams.get('debug') === 'true';

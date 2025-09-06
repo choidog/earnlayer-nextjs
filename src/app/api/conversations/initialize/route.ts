@@ -3,27 +3,52 @@ import { db } from "@/lib/db/connection";
 import { chatSessions, creators } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { auth } from "@/lib/auth/config";
+import crypto from "crypto";
 
 const initializeRequestSchema = z.object({
-  creator_id: z.string().uuid().optional(), // Legacy support
+  creator_id: z.string().uuid().optional(), // Legacy support  
   user_id: z.string().optional(), // Better Auth user ID (preferred)
+  session_id: z.string().optional(), // Session ID for conversation tracking
   visitor_uuid: z.string().nullable().optional(),
   ad_preferences: z.record(z.any()).optional(),
   context: z.string().optional(),
   metadata: z.record(z.any()).optional(),
 });
 
+// Helper function to generate unique creator name
+function generateCreatorName(email: string, name?: string): string {
+  if (name) {
+    return `${name} (${email.split('@')[0]})`;
+  }
+  const emailPrefix = email.split('@')[0];
+  const randomSuffix = crypto.randomBytes(3).toString('hex');
+  return `Creator ${emailPrefix}_${randomSuffix}`;
+}
+
 export async function POST(request: NextRequest) {
   try {
+    console.log("🚀 [INIT] Starting conversation initialization...");
+    
     const body = await request.json();
     const validatedData = initializeRequestSchema.parse(body);
 
-    // Get creator (support both user_id and legacy creator_id)
+    // Get Better Auth session for auto-creator creation
+    let session = null;
+    try {
+      session = await auth.api.getSession({
+        headers: request.headers,
+      });
+    } catch (error) {
+      console.log("⚠️ [INIT] No authenticated session found");
+    }
+
+    // Get creator (support both user_id and legacy creator_id with auto-creation)
     let creatorId = validatedData.creator_id;
     let creator;
 
     if (validatedData.user_id) {
-      // Preferred: lookup by user_id
+      // Preferred: lookup by user_id with auto-creation
       console.log("🔍 [INIT] Looking up creator by user_id:", validatedData.user_id);
       creator = await db
         .select()
@@ -33,13 +58,32 @@ export async function POST(request: NextRequest) {
         
       if (creator.length > 0) {
         creatorId = creator[0].id;
-        console.log("✅ [INIT] Found creator by user_id:", { creatorId, userId: validatedData.user_id });
+        console.log("✅ [INIT] Found existing creator by user_id:", { creatorId, userId: validatedData.user_id });
       } else {
-        console.log("❌ [INIT] No creator found for user_id:", validatedData.user_id);
-        return NextResponse.json(
-          { error: "Creator profile not found for user. Please contact support." },
-          { status: 404 }
-        );
+        // Auto-create creator profile
+        console.log("🎯 [INIT] Auto-creating creator profile for user_id:", validatedData.user_id);
+        
+        if (!session) {
+          console.log("❌ [INIT] Cannot auto-create creator without session");
+          return NextResponse.json(
+            { error: "Authentication required for creator profile creation" },
+            { status: 401 }
+          );
+        }
+
+        // Create new creator profile
+        const creatorName = generateCreatorName(session.user.email, session.user.name);
+        const newCreator = await db
+          .insert(creators)
+          .values({
+            userId: validatedData.user_id,
+            name: creatorName,
+            email: session.user.email,
+          })
+          .returning();
+
+        creatorId = newCreator[0].id;
+        console.log("✅ [INIT] Auto-created creator profile:", { creatorId, userId: validatedData.user_id, name: creatorName });
       }
     } else if (creatorId) {
       // Legacy: lookup by creator_id
