@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create new chat session
-    const session = await db
+    const chatSession = await db
       .insert(chatSessions)
       .values({
         creatorId: creatorId,
@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
       })
       .returning();
 
-    const createdSession = session[0];
+    const createdSession = chatSession[0];
 
     // Default ad settings (could be customized per creator)
     const adSettings = {
@@ -189,20 +189,20 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const session = await db
+    const sessionQuery = await db
       .select()
       .from(chatSessions)
       .where(eq(chatSessions.id, sessionId))
       .limit(1);
 
-    if (session.length === 0) {
+    if (sessionQuery.length === 0) {
       return NextResponse.json(
         { error: "Session not found" },
         { status: 404 }
       );
     }
 
-    const sessionData = session[0];
+    const sessionData = sessionQuery[0];
 
     return NextResponse.json({
       conversation_id: sessionData.id,
