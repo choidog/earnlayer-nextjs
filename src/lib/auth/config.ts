@@ -39,14 +39,23 @@ export const auth = betterAuth({
   session: {
     expiresIn: 60 * 60 * 24 * 7, // 7 days
     updateAge: 60 * 60 * 24, // 1 day (refresh session)
+    cookieCache: {
+      enabled: true, // Re-enable cookie cache for same-domain setup
+    },
   },
   advanced: {
+    useSecureCookies: true,
+    crossSubDomainCookies: {
+      enabled: true, // Enable cross-subdomain cookies for same root domain
+      domain: ".earnlayerai.com", // Share cookies between app.earnlayerai.com and api.earnlayerai.com
+    },
     cookies: {
       session_token: {
         attributes: {
-          sameSite: "none",
+          sameSite: "lax", // Same root domain allows lax instead of none
           secure: true,
           httpOnly: true,
+          domain: ".earnlayerai.com", // Share cookies across subdomains
         },
       },
     },
