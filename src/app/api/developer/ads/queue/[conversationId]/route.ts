@@ -38,13 +38,10 @@ export async function GET(
     // Get conversation and automatically resolve creator
     const conversation = await db
       .select({
-        id: chatSessions.id,
+        sessionId: chatSessions.id,
         creatorId: chatSessions.creatorId,
-        creator: {
-          id: creators.id,
-          name: creators.name,
-          userId: creators.userId
-        }
+        creatorName: creators.name,
+        creatorUserId: creators.userId
       })
       .from(chatSessions)
       .innerJoin(creators, eq(chatSessions.creatorId, creators.id))
@@ -60,7 +57,11 @@ export async function GET(
     }
 
     const { creatorId } = conversation[0];
-    console.log("✅ [ADS] Found conversation for creator:", { conversationId, creatorId });
+    console.log("✅ [ADS] Found conversation for creator:", { 
+      conversationId, 
+      creatorId, 
+      creatorName: conversation[0].creatorName 
+    });
 
     // ADMIN/DEBUG MODE: Check if this is an admin/debug request
     const isDebugMode = searchParams.get('debug') === 'true';
