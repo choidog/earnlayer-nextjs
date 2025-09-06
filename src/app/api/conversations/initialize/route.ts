@@ -9,6 +9,8 @@ import crypto from "crypto";
 const initializeRequestSchema = z.object({
   creator_id: z.string().uuid().optional(), // Legacy support  
   user_id: z.string().optional(), // Better Auth user ID (preferred)
+  user_email: z.string().email().optional(), // User email for creator auto-creation
+  user_name: z.string().optional(), // User name for creator auto-creation
   session_id: z.string().optional(), // Session ID for conversation tracking
   visitor_uuid: z.string().nullable().optional(),
   ad_preferences: z.record(z.any()).optional(),
@@ -33,7 +35,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const validatedData = initializeRequestSchema.parse(body);
 
-    // Get Better Auth session for auto-creator creation
+    // Get Better Auth session for auto-creator creation (optional fallback)
     let session = null;
     try {
       session = await auth.api.getSession({
@@ -63,27 +65,36 @@ export async function POST(request: NextRequest) {
         // Auto-create creator profile
         console.log("🎯 [INIT] Auto-creating creator profile for user_id:", validatedData.user_id);
         
-        if (!session) {
-          console.log("❌ [INIT] Cannot auto-create creator without session");
+        // Use provided user data or fall back to session data
+        let userEmail = validatedData.user_email;
+        let userName = validatedData.user_name;
+        
+        if (!userEmail && session) {
+          userEmail = session.user.email;
+          userName = session.user.name;
+        }
+        
+        if (!userEmail) {
+          console.log("❌ [INIT] Cannot auto-create creator without user email");
           return NextResponse.json(
-            { error: "Authentication required for creator profile creation" },
-            { status: 401 }
+            { error: "User email required for creator profile creation" },
+            { status: 400 }
           );
         }
 
         // Create new creator profile
-        const creatorName = generateCreatorName(session.user.email, session.user.name);
+        const creatorName = generateCreatorName(userEmail, userName);
         const newCreator = await db
           .insert(creators)
           .values({
             userId: validatedData.user_id,
             name: creatorName,
-            email: session.user.email,
+            email: userEmail,
           })
           .returning();
 
         creatorId = newCreator[0].id;
-        console.log("✅ [INIT] Auto-created creator profile:", { creatorId, userId: validatedData.user_id, name: creatorName });
+        console.log("✅ [INIT] Auto-created creator profile:", { creatorId, userId: validatedData.user_id, name: creatorName, email: userEmail });
       }
     } else if (creatorId) {
       // Legacy: lookup by creator_id
