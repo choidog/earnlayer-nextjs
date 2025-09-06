@@ -80,38 +80,33 @@ export const auth = betterAuth({
   ].filter(Boolean),
   secret: process.env.BETTER_AUTH_SECRET as string,
   hooks: {
-    after: [
-      {
-        matcher(context) {
-          return context.path?.startsWith("/sign-up") || false;
-        },
-        handler: async (ctx) => {
-          try {
-            console.log("🎯 [AUTH HOOK] User signed up:", ctx.user.email);
-            
-            // Create corresponding creator profile
-            const creatorName = generateCreatorName(ctx.user.email, ctx.user.name);
-            
-            const creator = await db.insert(creators).values({
-              userId: ctx.user.id,
-              name: creatorName,
-              email: ctx.user.email,
-            }).returning();
-            
-            console.log("✅ [AUTH HOOK] Created creator:", {
-              creatorId: creator[0].id,
-              creatorName: creatorName,
-              userId: ctx.user.id,
-              email: ctx.user.email
-            });
-            
-          } catch (error) {
-            console.error("❌ [AUTH HOOK] Failed to create creator:", error);
-            // Don't throw - we don't want to break the signup process
-          }
-        },
+    after: {
+      signUp: async (ctx) => {
+        try {
+          console.log("🎯 [AUTH HOOK] User signed up:", ctx.user.email);
+          
+          // Create corresponding creator profile
+          const creatorName = generateCreatorName(ctx.user.email, ctx.user.name);
+          
+          const creator = await db.insert(creators).values({
+            userId: ctx.user.id,
+            name: creatorName,
+            email: ctx.user.email,
+          }).returning();
+          
+          console.log("✅ [AUTH HOOK] Created creator:", {
+            creatorId: creator[0].id,
+            creatorName: creatorName,
+            userId: ctx.user.id,
+            email: ctx.user.email
+          });
+          
+        } catch (error) {
+          console.error("❌ [AUTH HOOK] Failed to create creator:", error);
+          // Don't throw - we don't want to break the signup process
+        }
       },
-    ],
+    },
   },
 });
 console.log("✅ Better Auth instance created successfully");
