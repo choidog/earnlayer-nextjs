@@ -3,6 +3,9 @@ import { db } from "@/lib/db/connection";
 import { defaultAdRelationship, ads, adCampaigns, chatSessions } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
+import { Logger } from "@/lib/logging/logger";
+import { successResponse, errorResponse, validationErrorWithSchema } from "@/lib/api/response";
+import { NotFoundError, DatabaseError } from "@/lib/api/errors";
 
 const displayAdRequestSchema = z.object({
   conversation_id: z.string().uuid(),
@@ -14,8 +17,12 @@ const displayAdRequestSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  const logger = Logger.fromRequest(request, { endpoint: 'ads/display' });
+  
   try {
     const body = await request.json();
+    logger.requestStart(body);
+    
     const validatedData = displayAdRequestSchema.parse(body);
 
     // Get creator ID from conversation
@@ -26,10 +33,13 @@ export async function POST(request: NextRequest) {
       .limit(1);
 
     if (conversation.length === 0) {
-      return NextResponse.json(
-        { error: "Conversation not found" },
-        { status: 404 }
+      const error = new NotFoundError(
+        "Conversation not found",
+        { conversation_id: validatedData.conversation_id },
+        "CONVERSATION_NOT_FOUND"
       );
+      logger.error("Conversation lookup failed", error);
+      return errorResponse(error, logger.context.requestId);
     }
 
     const creatorId = conversation[0].creatorId;
@@ -122,29 +132,30 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // No ads available
-    return NextResponse.json(
-      { error: "No ads available for the requested type" },
-      { status: 404 }
-    );
+    // No ads available - return 200 with empty result for graceful frontend handling
+    logger.info("No ads available for requested type", { 
+      ad_type: requestedAdType, 
+      creator_id: creatorId 
+    });
+    
+    return successResponse({
+      ad: null,
+      status: "no_ads_available", 
+      message: "No ads available for the requested type"
+    }, { requestId: logger.context.requestId });
 
   } catch (error) {
-    console.error("Error getting display ad:", error);
-    
     if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { 
-          error: "Invalid request data", 
-          details: error.errors 
-        },
-        { status: 400 }
-      );
+      const validationError = validationErrorWithSchema(error, displayAdRequestSchema, logger);
+      return errorResponse(validationError, logger.context.requestId);
     }
 
-    return NextResponse.json(
-      { error: "Failed to get display ad" },
-      { status: 500 }
-    );
+    if (error instanceof NotFoundError || error instanceof DatabaseError) {
+      return errorResponse(error, logger.context.requestId);
+    }
+
+    logger.error("Unexpected error in ads display endpoint", error as Error);
+    return errorResponse(error as Error, logger.context.requestId);
   }
 }
 
