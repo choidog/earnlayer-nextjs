@@ -10,6 +10,9 @@ import {
 } from "@/lib/db/schema";
 import { eq, sql, and, isNull, isNotNull, desc } from "drizzle-orm";
 import { z } from "zod";
+import { withApiKey, type ApiKeyValidation, hasPermission } from "@/lib/middleware/api-key";
+import { withRequestLogging } from "@/lib/middleware/request-logger";
+import { logError } from "@/lib/logging/logger";
 
 // MCP Tool Schema
 const mcpToolCallSchema = z.object({
@@ -274,8 +277,20 @@ async function logMcpToolCall(
 }
 
 // Main MCP server endpoint
-export async function POST(request: NextRequest) {
+async function handlePost(request: NextRequest, validation: ApiKeyValidation): Promise<NextResponse> {
   try {
+    // Check permissions for MCP access
+    if (!hasPermission(validation, 'mcp:access')) {
+      return NextResponse.json({
+        jsonrpc: '2.0',
+        id: null,
+        error: {
+          code: -32603,
+          message: 'Insufficient permissions for MCP access'
+        }
+      }, { status: 403 });
+    }
+
     const body = await request.json();
     const sessionId = request.headers.get('Mcp-Session-Id') || crypto.randomUUID();
 
@@ -542,8 +557,10 @@ export async function POST(request: NextRequest) {
   }
 }
 
+export const POST = withRequestLogging(withApiKey(handlePost));
+
 // GET endpoint for health check and server info
-export async function GET(request: NextRequest) {
+async function handleGet(request: NextRequest, validation: ApiKeyValidation): Promise<NextResponse> {
   return NextResponse.json({
     server: "EarnLayer MCP Server",
     version: "1.0.0",
@@ -559,6 +576,8 @@ export async function GET(request: NextRequest) {
     timestamp: new Date().toISOString()
   });
 }
+
+export const GET = withRequestLogging(withApiKey(handleGet));
 
 // Handle preflight requests
 export async function OPTIONS() {

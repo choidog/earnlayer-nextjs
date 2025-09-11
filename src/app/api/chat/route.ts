@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db/connection";
-import { chatSessions, chatMessages } from "@/lib/db/schema";
+import { chatSessions, chatMessages, creators } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { embeddingService } from "@/lib/services/embeddings";
 import { adServingService } from "@/lib/services/ad-serving";
 import OpenAI from "openai";
 import { z } from "zod";
+import { withApiKey, checkResourceAccess, type ApiKeyValidation } from "@/lib/middleware/api-key";
+import { Logger } from "@/lib/logging/logger";
+import { successResponse, errorResponse, validationErrorWithSchema } from "@/lib/api/response";
+import { NotFoundError, AuthorizationError, DatabaseError, ValidationError } from "@/lib/api/errors";
 
 const openai = process.env.OPENAI_API_KEY && !process.env.OPENAI_API_KEY.includes("placeholder")
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -23,9 +27,13 @@ const chatRequestSchema = z.object({
   }).optional(),
 });
 
-export async function POST(request: NextRequest) {
+async function handlePost(request: NextRequest, validation: ApiKeyValidation): Promise<NextResponse> {
+  const logger = Logger.fromRequest(request, { endpoint: 'chat/post' });
+  
   try {
     const body = await request.json();
+    logger.requestStart(body);
+    
     const validatedData = chatRequestSchema.parse(body);
 
     // Verify session exists
@@ -43,6 +51,22 @@ export async function POST(request: NextRequest) {
     }
 
     const sessionData = session[0];
+
+    // Check if API key user has access to this session's creator
+    if (sessionData.creatorId) {
+      const creatorResult = await db
+        .select({ userId: creators.userId })
+        .from(creators)
+        .where(eq(creators.id, sessionData.creatorId))
+        .limit(1);
+
+      if (creatorResult.length > 0 && !checkResourceAccess(validation, creatorResult[0].userId)) {
+        return NextResponse.json(
+          { error: "Access denied: You can only access your own chat sessions" },
+          { status: 403 }
+        );
+      }
+    }
 
     // Generate embedding for the message
     const messageEmbedding = await embeddingService.generateEmbedding(validatedData.message);
@@ -145,8 +169,10 @@ export async function POST(request: NextRequest) {
   }
 }
 
+export const POST = withApiKey(handlePost);
+
 // Get chat history
-export async function GET(request: NextRequest) {
+async function handleGet(request: NextRequest, validation: ApiKeyValidation): Promise<NextResponse> {
   const { searchParams } = new URL(request.url);
   const sessionId = searchParams.get('session_id');
   const limit = parseInt(searchParams.get('limit') || '50');
@@ -159,6 +185,38 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    // Verify session exists and check access
+    const session = await db
+      .select()
+      .from(chatSessions)
+      .where(eq(chatSessions.id, sessionId))
+      .limit(1);
+
+    if (session.length === 0) {
+      return NextResponse.json(
+        { error: "Session not found" },
+        { status: 404 }
+      );
+    }
+
+    const sessionData = session[0];
+
+    // Check if API key user has access to this session's creator
+    if (sessionData.creatorId) {
+      const creatorResult = await db
+        .select({ userId: creators.userId })
+        .from(creators)
+        .where(eq(creators.id, sessionData.creatorId))
+        .limit(1);
+
+      if (creatorResult.length > 0 && !checkResourceAccess(validation, creatorResult[0].userId)) {
+        return NextResponse.json(
+          { error: "Access denied: You can only access your own chat sessions" },
+          { status: 403 }
+        );
+      }
+    }
+
     const messages = await db
       .select({
         id: chatMessages.id,
@@ -190,6 +248,8 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export const GET = withApiKey(handleGet);
 
 // Generate AI response using OpenAI
 async function generateAIResponse(sessionId: string, userMessage: string): Promise<string> {

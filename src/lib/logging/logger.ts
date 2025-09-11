@@ -1,165 +1,196 @@
-import { NextRequest } from "next/server";
-import crypto from "crypto";
+import pino from 'pino';
+import { Pool } from 'pg';
 
-// Log levels
-export enum LogLevel {
-  ERROR = "error",
-  WARN = "warn",
-  INFO = "info", 
-  DEBUG = "debug"
-}
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 5,
+});
 
-// Context interface for structured logging
-export interface LogContext {
-  requestId?: string;
-  endpoint?: string;
+interface LogEntry {
+  level: string;
+  endpoint: string;
   method?: string;
-  userId?: string;
-  userEmail?: string;
-  timestamp?: string;
-  duration?: number;
-  [key: string]: any;
-}
-
-// Log entry structure
-export interface LogEntry {
-  level: LogLevel;
   message: string;
-  context: LogContext;
-  error?: Error;
-  data?: any;
+  details?: any;
+  requestId?: string;
+  statusCode?: number;
+  duration?: number;
+  userId?: string;
+  ipAddress?: string;
+  userAgent?: string;
 }
 
-class Logger {
-  private context: LogContext = {};
+class DatabaseTransport {
+  private buffer: LogEntry[] = [];
+  private batchTimeout: NodeJS.Timeout | null = null;
+  private readonly BATCH_SIZE = 10;
+  private readonly BATCH_TIMEOUT = 1000;
 
-  // Set global context for the logger instance
-  setContext(context: Partial<LogContext>): Logger {
-    const newLogger = new Logger();
-    newLogger.context = { ...this.context, ...context };
-    return newLogger;
-  }
-
-  // Generate a unique request ID
-  static generateRequestId(): string {
-    return crypto.randomBytes(8).toString('hex');
-  }
-
-  // Create context from NextJS request
-  static fromRequest(request: NextRequest, additionalContext: Partial<LogContext> = {}): Logger {
-    const requestId = Logger.generateRequestId();
-    const url = new URL(request.url);
+  write(log: LogEntry) {
+    this.buffer.push(log);
     
-    const context: LogContext = {
-      requestId,
-      endpoint: url.pathname,
-      method: request.method,
-      timestamp: new Date().toISOString(),
-      ...additionalContext
-    };
-
-    return new Logger().setContext(context);
-  }
-
-  private log(level: LogLevel, message: string, data?: any, error?: Error): void {
-    const entry: LogEntry = {
-      level,
-      message,
-      context: {
-        ...this.context,
-        timestamp: this.context.timestamp || new Date().toISOString()
-      },
-      ...(data && { data }),
-      ...(error && { error })
-    };
-
-    // Console output with emoji prefixes
-    const emoji = {
-      [LogLevel.ERROR]: "❌",
-      [LogLevel.WARN]: "⚠️ ",
-      [LogLevel.INFO]: "📋",
-      [LogLevel.DEBUG]: "🔍"
-    };
-
-    const prefix = `${emoji[level]} [${this.context.endpoint || 'API'}]`;
-    
-    if (level === LogLevel.ERROR && error) {
-      console.error(`${prefix} ${message}`, {
-        context: entry.context,
-        error: {
-          name: error.name,
-          message: error.message,
-          stack: error.stack
-        },
-        ...(data && { data })
-      });
-    } else {
-      console.log(`${prefix} ${message}`, {
-        context: entry.context,
-        ...(data && { data })
-      });
+    if (this.buffer.length >= this.BATCH_SIZE) {
+      this.flush();
+    } else if (!this.batchTimeout) {
+      this.batchTimeout = setTimeout(() => this.flush(), this.BATCH_TIMEOUT);
     }
   }
 
-  // Public logging methods
-  error(message: string, error?: Error, data?: any): void {
-    this.log(LogLevel.ERROR, message, data, error);
-  }
+  private async flush() {
+    if (this.buffer.length === 0) return;
+    
+    const logsToWrite = [...this.buffer];
+    this.buffer = [];
+    
+    if (this.batchTimeout) {
+      clearTimeout(this.batchTimeout);
+      this.batchTimeout = null;
+    }
 
-  warn(message: string, data?: any): void {
-    this.log(LogLevel.WARN, message, data);
-  }
+    try {
+      const values = logsToWrite.map(log => [
+        log.level,
+        log.endpoint,
+        log.method,
+        log.message,
+        log.details ? JSON.stringify(log.details) : null,
+        log.requestId,
+        log.statusCode,
+        log.duration,
+        log.userId,
+        log.ipAddress,
+        log.userAgent
+      ]);
 
-  info(message: string, data?: any): void {
-    this.log(LogLevel.INFO, message, data);
-  }
+      const query = `
+        INSERT INTO api_logs (
+          level, endpoint, method, message, details, 
+          request_id, status_code, duration, user_id, ip_address, user_agent
+        ) VALUES ${values.map((_, i) => 
+          `($${i * 11 + 1}, $${i * 11 + 2}, $${i * 11 + 3}, $${i * 11 + 4}, $${i * 11 + 5}, $${i * 11 + 6}, $${i * 11 + 7}, $${i * 11 + 8}, $${i * 11 + 9}, $${i * 11 + 10}, $${i * 11 + 11})`
+        ).join(', ')}
+      `;
 
-  debug(message: string, data?: any): void {
-    this.log(LogLevel.DEBUG, message, data);
-  }
-
-  // Specialized logging methods
-  requestStart(body?: any): void {
-    this.info("Request started", {
-      body: body ? JSON.stringify(body, null, 2) : null
-    });
-  }
-
-  requestEnd(statusCode: number, duration?: number): void {
-    this.info(`Request completed`, {
-      statusCode,
-      ...(duration && { duration: `${duration}ms` })
-    });
-  }
-
-  validationError(message: string, details: any): void {
-    this.error(`Validation failed: ${message}`, undefined, { validation: details });
-  }
-
-  authError(message: string, details?: any): void {
-    this.error(`Authentication error: ${message}`, undefined, details);
-  }
-
-  databaseError(operation: string, error: Error, query?: string): void {
-    this.error(`Database ${operation} failed`, error, { query });
-  }
-
-  // Create a timer for measuring operation duration
-  timer(): { end: () => number } {
-    const start = Date.now();
-    return {
-      end: () => Date.now() - start
-    };
-  }
-
-  // Child logger with additional context
-  child(additionalContext: Partial<LogContext>): Logger {
-    return this.setContext(additionalContext);
+      await pool.query(query, values.flat());
+    } catch (error) {
+      console.error('Failed to write logs to database:', error);
+      // Fallback to console logging
+      logsToWrite.forEach(log => {
+        console.log(`[${log.level.toUpperCase()}] ${log.endpoint}: ${log.message}`);
+      });
+    }
   }
 }
 
-// Export a default logger instance
-export const logger = new Logger();
+const dbTransport = new DatabaseTransport();
 
-// Export the Logger class for creating instances
-export { Logger };
+const logger = pino({
+  level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
+  formatters: {
+    level: (label) => ({ level: label }),
+  },
+  timestamp: pino.stdTimeFunctions.isoTime,
+}, {
+  write: (chunk: string) => {
+    try {
+      const log = JSON.parse(chunk);
+      const logEntry: LogEntry = {
+        level: log.level,
+        endpoint: log.endpoint || 'unknown',
+        method: log.method,
+        message: log.msg || log.message || 'No message',
+        details: log.details,
+        requestId: log.requestId,
+        statusCode: log.statusCode,
+        duration: log.duration,
+        userId: log.userId,
+        ipAddress: log.ipAddress,
+        userAgent: log.userAgent,
+      };
+      
+      dbTransport.write(logEntry);
+      
+      // Also log to console in development
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(chunk);
+      }
+    } catch (error) {
+      console.error('Failed to parse log:', error);
+    }
+  }
+});
+
+export { logger };
+
+// Helper functions for structured logging
+export const logApiRequest = (data: {
+  endpoint: string;
+  method: string;
+  requestId: string;
+  userId?: string;
+  ipAddress?: string;
+  userAgent?: string;
+}) => {
+  logger.info({
+    ...data,
+    message: `🔄 [Request] ${data.method} ${data.endpoint}`,
+  });
+};
+
+export const logApiResponse = (data: {
+  endpoint: string;
+  method: string;
+  requestId: string;
+  statusCode: number;
+  duration: number;
+  userId?: string;
+}) => {
+  const level = data.statusCode >= 500 ? 'error' : data.statusCode >= 400 ? 'warn' : 'info';
+  const emoji = data.statusCode >= 500 ? '❌' : data.statusCode >= 400 ? '⚠️' : '✅';
+  
+  logger[level]({
+    ...data,
+    message: `${emoji} [Response] ${data.statusCode} - ${data.duration}ms`,
+  });
+};
+
+export const logApiKeyValidation = (data: {
+  endpoint: string;
+  requestId: string;
+  success: boolean;
+  reason?: string;
+  userId?: string;
+  ipAddress?: string;
+}) => {
+  const level = data.success ? 'info' : 'warn';
+  const emoji = data.success ? '🔑' : '🚫';
+  const message = data.success 
+    ? `${emoji} [API Key] Validation successful`
+    : `${emoji} [API Key] Validation failed: ${data.reason}`;
+  
+  logger[level]({
+    ...data,
+    message,
+    details: data.reason ? { reason: data.reason } : undefined,
+  });
+};
+
+export const logError = (data: {
+  endpoint: string;
+  requestId: string;
+  error: Error | string;
+  userId?: string;
+  statusCode?: number;
+}) => {
+  const errorMessage = data.error instanceof Error ? data.error.message : data.error;
+  const stack = data.error instanceof Error ? data.error.stack : undefined;
+  
+  logger.error({
+    ...data,
+    message: `💥 [Error] ${errorMessage}`,
+    details: { 
+      error: errorMessage,
+      stack: stack?.split('\n').slice(0, 5).join('\n') // Limit stack trace
+    },
+  });
+};

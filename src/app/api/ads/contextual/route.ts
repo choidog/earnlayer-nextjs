@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adServingService } from "@/lib/services/ad-serving";
 import { z } from "zod";
+import { withApiKey, type ApiKeyValidation, hasPermission } from "@/lib/middleware/api-key";
 
 const contextualRequestSchema = z.object({
   query: z.string().min(1),
@@ -14,8 +15,16 @@ const contextualRequestSchema = z.object({
   exclude_ad_ids: z.array(z.string().uuid()).optional(),
 });
 
-export async function POST(request: NextRequest) {
+async function handlePost(request: NextRequest, validation: ApiKeyValidation): Promise<NextResponse> {
   try {
+    // Check permissions for ad serving
+    if (!hasPermission(validation, 'ads:serve')) {
+      return NextResponse.json(
+        { error: "Insufficient permissions for ad serving" },
+        { status: 403 }
+      );
+    }
+
     const body = await request.json();
     const validatedData = contextualRequestSchema.parse(body);
 
@@ -79,8 +88,10 @@ export async function POST(request: NextRequest) {
   }
 }
 
+export const POST = withApiKey(handlePost);
+
 // GET endpoint for quick testing
-export async function GET(request: NextRequest) {
+async function handleGet(request: NextRequest, validation: ApiKeyValidation): Promise<NextResponse> {
   const { searchParams } = new URL(request.url);
   
   const query = searchParams.get('query');
@@ -90,6 +101,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       { error: "query and creator_id parameters are required" },
       { status: 400 }
+    );
+  }
+
+  // Check permissions for ad serving
+  if (!hasPermission(validation, 'ads:serve')) {
+    return NextResponse.json(
+      { error: "Insufficient permissions for ad serving" },
+      { status: 403 }
     );
   }
 
@@ -121,3 +140,5 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export const GET = withApiKey(handleGet);

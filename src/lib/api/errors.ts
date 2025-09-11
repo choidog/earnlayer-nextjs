@@ -69,6 +69,54 @@ export class AuthenticationError extends Error implements BaseError {
     this.code = code;
     this.details = details;
   }
+
+  static apiKeyRequired(): AuthenticationError {
+    return new AuthenticationError(
+      "API key is required to access this endpoint",
+      {
+        required_headers: ["Authorization: Bearer <api_key>", "X-API-Key: <api_key>"],
+        documentation: "https://docs.earnlayerai.com/api/authentication",
+        help: "Generate an API key in your dashboard at https://app.earnlayerai.com/dashboard/api-keys"
+      },
+      "API_KEY_REQUIRED"
+    );
+  }
+
+  static apiKeyInvalid(): AuthenticationError {
+    return new AuthenticationError(
+      "The provided API key is invalid or expired",
+      {
+        possible_causes: [
+          "API key was revoked or deleted",
+          "API key has expired",
+          "API key format is incorrect",
+          "API key was regenerated"
+        ],
+        next_steps: [
+          "Check your API key in the dashboard",
+          "Generate a new API key if needed",
+          "Ensure the key is properly formatted"
+        ],
+        documentation: "https://docs.earnlayerai.com/api/authentication"
+      },
+      "API_KEY_INVALID"
+    );
+  }
+
+  static apiKeyExpired(expirationDate?: Date): AuthenticationError {
+    return new AuthenticationError(
+      "The provided API key has expired",
+      {
+        expired_at: expirationDate?.toISOString(),
+        next_steps: [
+          "Generate a new API key in your dashboard",
+          "Update your application with the new key"
+        ],
+        help: "Visit https://app.earnlayerai.com/dashboard/api-keys to manage your keys"
+      },
+      "API_KEY_EXPIRED"
+    );
+  }
 }
 
 export class AuthorizationError extends Error implements BaseError {
@@ -85,6 +133,48 @@ export class AuthorizationError extends Error implements BaseError {
     this.name = "AuthorizationError";
     this.code = code;
     this.details = details;
+  }
+
+  static insufficientPermissions(requiredPermission: string, availablePermissions: string[] = []): AuthorizationError {
+    return new AuthorizationError(
+      `Your API key lacks the required permission: ${requiredPermission}`,
+      {
+        required_permission: requiredPermission,
+        available_permissions: availablePermissions,
+        common_permissions: {
+          "ads:serve": "Serve and display advertisements",
+          "mcp:access": "Access MCP server functionality",
+          "chat:access": "Access chat and conversation APIs",
+          "analytics:read": "Read analytics and metrics data",
+          "admin:*": "Full administrative access"
+        },
+        next_steps: [
+          "Contact your administrator to request permission",
+          "Generate a new API key with proper permissions",
+          "Check your API key configuration in the dashboard"
+        ],
+        help: "Visit https://app.earnlayerai.com/dashboard/api-keys to manage permissions"
+      },
+      "INSUFFICIENT_PERMISSIONS"
+    );
+  }
+
+  static resourceAccessDenied(resourceType: string, resourceId?: string): AuthorizationError {
+    return new AuthorizationError(
+      `Access denied: You can only access your own ${resourceType}`,
+      {
+        resource_type: resourceType,
+        resource_id: resourceId,
+        explanation: "API keys can only access resources owned by the associated user account",
+        security_note: "This restriction prevents unauthorized access to other users' data",
+        next_steps: [
+          `Ensure you're accessing your own ${resourceType}`,
+          "Verify the resource ID belongs to your account",
+          "Contact support if you believe this is an error"
+        ]
+      },
+      "RESOURCE_ACCESS_DENIED"
+    );
   }
 }
 
@@ -136,6 +226,59 @@ export class BusinessLogicError extends Error implements BaseError {
     this.name = "BusinessLogicError";
     this.code = code;
     this.details = details;
+  }
+}
+
+export class RateLimitError extends Error implements BaseError {
+  code: string;
+  statusCode: number = 429;
+  details: Record<string, any>;
+
+  constructor(
+    message: string = "Rate limit exceeded",
+    details: Record<string, any> = {},
+    code: string = "RATE_LIMIT_EXCEEDED"
+  ) {
+    super(message);
+    this.name = "RateLimitError";
+    this.code = code;
+    this.details = details;
+  }
+
+  static exceeded(
+    limit: number,
+    windowMs: number,
+    resetTime?: number,
+    remaining: number = 0
+  ): RateLimitError {
+    const resetDate = resetTime ? new Date(resetTime) : null;
+    const windowHours = Math.round(windowMs / (1000 * 60 * 60));
+    
+    return new RateLimitError(
+      `Rate limit exceeded: ${limit} requests per ${windowHours} hour(s)`,
+      {
+        rate_limit: {
+          limit,
+          remaining,
+          window_ms: windowMs,
+          window_description: `${windowHours} hour${windowHours !== 1 ? 's' : ''}`,
+          reset_time: resetDate?.toISOString(),
+          reset_time_human: resetDate?.toLocaleString()
+        },
+        upgrade_options: {
+          free_tier: "10 requests per day",
+          pro_tier: "10,000 requests per day",
+          enterprise: "Custom limits available"
+        },
+        next_steps: [
+          resetDate ? `Wait until ${resetDate.toLocaleString()} for limit reset` : "Wait for rate limit to reset",
+          "Upgrade your plan for higher limits",
+          "Optimize your request patterns to stay within limits"
+        ],
+        help: "Visit https://app.earnlayerai.com/dashboard/billing to upgrade your plan"
+      },
+      "RATE_LIMIT_EXCEEDED"
+    );
   }
 }
 

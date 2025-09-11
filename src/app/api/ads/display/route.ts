@@ -6,6 +6,8 @@ import { z } from "zod";
 import { Logger } from "@/lib/logging/logger";
 import { successResponse, errorResponse, validationErrorWithSchema } from "@/lib/api/response";
 import { NotFoundError, DatabaseError } from "@/lib/api/errors";
+import { withApiKey, hasPermission, checkResourceAccess, type ApiKeyValidation } from "@/lib/middleware/api-key";
+import { AuthorizationError } from "@/lib/api/errors";
 
 const displayAdRequestSchema = z.object({
   conversation_id: z.string().uuid(),
@@ -16,10 +18,16 @@ const displayAdRequestSchema = z.object({
   metadata: z.record(z.any()).optional(),
 });
 
-export async function POST(request: NextRequest) {
+async function handlePost(request: NextRequest, validation: ApiKeyValidation): Promise<NextResponse> {
   const logger = Logger.fromRequest(request, { endpoint: 'ads/display' });
   
   try {
+    // Check permissions for ad serving
+    if (!hasPermission(validation, 'ads:serve')) {
+      const error = AuthorizationError.insufficientPermissions('ads:serve');
+      return errorResponse(error, logger.context.requestId);
+    }
+
     const body = await request.json();
     logger.requestStart(body);
     
@@ -158,6 +166,8 @@ export async function POST(request: NextRequest) {
     return errorResponse(error as Error, logger.context.requestId);
   }
 }
+
+export const POST = withApiKey(handlePost);
 
 // Handle preflight requests
 export async function OPTIONS() {

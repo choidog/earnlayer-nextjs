@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db/connection";
-import { businessSettings } from "@/lib/db/schema";
+import { businessSettings, creators } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { withApiKey, checkResourceAccess, type ApiKeyValidation } from "@/lib/middleware/api-key";
 
 // Business Settings Update Schema
 const businessSettingsUpdateSchema = z.object({
@@ -12,7 +13,7 @@ const businessSettingsUpdateSchema = z.object({
   display_ad_similarity_threshold: z.number().min(0.0).max(1.0).optional(),
 });
 
-export async function GET(request: NextRequest) {
+async function handleGet(request: NextRequest, validation: ApiKeyValidation): Promise<NextResponse> {
   try {
     const { searchParams } = new URL(request.url);
     const creatorId = searchParams.get('creator_id');
@@ -21,6 +22,28 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         { error: "Creator ID is required" },
         { status: 400 }
+      );
+    }
+
+    // Get creator's user ID to verify ownership
+    const creatorResult = await db
+      .select({ userId: creators.userId })
+      .from(creators)
+      .where(eq(creators.id, creatorId))
+      .limit(1);
+
+    if (creatorResult.length === 0) {
+      return NextResponse.json(
+        { error: "Creator not found" },
+        { status: 404 }
+      );
+    }
+
+    // Check if API key user can access this creator's settings
+    if (!checkResourceAccess(validation, creatorResult[0].userId)) {
+      return NextResponse.json(
+        { error: "Access denied: You can only access your own creator settings" },
+        { status: 403 }
       );
     }
 
