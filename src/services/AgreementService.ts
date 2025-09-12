@@ -325,7 +325,7 @@ export class AgreementService {
       version: row.version as AgreementVersion,
       acceptedAt: row.acceptance.acceptedAt,
       ipAddress: row.acceptance.ipAddress || undefined,
-      acceptanceMethod: row.acceptance.acceptanceMethod,
+      acceptanceMethod: row.acceptance.acceptanceMethod || 'clickwrap',
     }));
   }
 
