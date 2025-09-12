@@ -1,5 +1,7 @@
 import pino from 'pino';
 import { Pool } from 'pg';
+import { NextRequest } from 'next/server';
+import crypto from 'crypto';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -119,6 +121,96 @@ const logger = pino({
     }
   }
 });
+
+// Logger class for structured API logging
+export class Logger {
+  public context: {
+    requestId: string;
+    endpoint: string;
+    method?: string;
+    userId?: string;
+    userEmail?: string;
+    ipAddress?: string;
+    userAgent?: string;
+  };
+
+  private constructor(context: { 
+    requestId: string; 
+    endpoint: string;
+    method?: string;
+    ipAddress?: string;
+    userAgent?: string;
+  }) {
+    this.context = context;
+  }
+
+  static fromRequest(request: NextRequest, options?: { endpoint?: string }): Logger {
+    const requestId = crypto.randomUUID();
+    const endpoint = options?.endpoint || new URL(request.url).pathname;
+    const method = request.method;
+    const ipAddress = request.headers.get('x-forwarded-for') || 
+                     request.headers.get('x-real-ip') || 
+                     'unknown';
+    const userAgent = request.headers.get('user-agent') || 'unknown';
+    
+    return new Logger({ 
+      requestId, 
+      endpoint, 
+      method,
+      ipAddress,
+      userAgent
+    });
+  }
+
+  info(message: string, data?: any) {
+    logger.info({
+      ...this.context,
+      message,
+      details: data,
+    });
+  }
+
+  error(message: string, error: any, data?: any) {
+    const errorMessage = error instanceof Error ? error.message : error.toString();
+    const stack = error instanceof Error ? error.stack : undefined;
+    
+    logger.error({
+      ...this.context,
+      message,
+      details: {
+        error: errorMessage,
+        stack: stack?.split('\n').slice(0, 5).join('\n'),
+        ...data
+      },
+    });
+  }
+
+  warn(message: string, data?: any) {
+    logger.warn({
+      ...this.context,
+      message,
+      details: data,
+    });
+  }
+
+  requestStart(body: any) {
+    this.info(`🔄 Request started: ${this.context.method} ${this.context.endpoint}`, {
+      body: typeof body === 'object' ? body : null,
+      requestStart: true
+    });
+  }
+
+  setContext(data: { userId?: string; userEmail?: string; [key: string]: any }) {
+    this.context = { ...this.context, ...data };
+  }
+
+  databaseError(operation: string, error: Error) {
+    this.error(`💾 Database error during ${operation}`, error, {
+      operation,
+      databaseError: true
+    });
+  }
+}
 
 export { logger };
 
