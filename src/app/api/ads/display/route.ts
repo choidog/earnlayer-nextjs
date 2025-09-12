@@ -92,10 +92,10 @@ async function handlePost(request: NextRequest, validation: ApiKeyValidation): P
         image_url: null
       };
 
-      return NextResponse.json({
+      return successResponse({
         ad: displayAd,
         status: "success"
-      });
+      }, { requestId: logger.context.requestId });
     }
 
     // Fallback: get any active ad of the requested type
@@ -134,10 +134,10 @@ async function handlePost(request: NextRequest, validation: ApiKeyValidation): P
         image_url: null
       };
 
-      return NextResponse.json({
+      return successResponse({
         ad: displayAd,
         status: "success"
-      });
+      }, { requestId: logger.context.requestId });
     }
 
     // No ads available - return 200 with empty result for graceful frontend handling
@@ -149,7 +149,12 @@ async function handlePost(request: NextRequest, validation: ApiKeyValidation): P
     return successResponse({
       ad: null,
       status: "no_ads_available", 
-      message: "No ads available for the requested type"
+      message: "No ads available for the requested type",
+      debug: {
+        requested_ad_type: requestedAdType,
+        creator_id: creatorId,
+        conversation_id: validatedData.conversation_id
+      }
     }, { requestId: logger.context.requestId });
 
   } catch (error) {
