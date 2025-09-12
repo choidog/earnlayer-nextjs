@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { UserRow } from './UserRow';
 
 interface User {
   id: string;

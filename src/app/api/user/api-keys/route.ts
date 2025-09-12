@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth/config";
 import { db } from "@/lib/db/connection";
-import { apikey } from "@/lib/db/schema";
+import { apikey, creators } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
   try {
+    const { searchParams } = new URL(request.url);
+    const checkApproval = searchParams.get('approval') === 'true';
+
     // Get the authenticated user
     const session = await auth.api.getSession({
       headers: request.headers,
@@ -14,8 +17,66 @@ export async function GET(request: NextRequest) {
     if (!session?.user) {
       return NextResponse.json(
         { error: "Authentication required" },
-        { status: 401 }
+        { 
+          status: 401,
+          headers: {
+            'Access-Control-Allow-Origin': process.env.NODE_ENV === 'production' ? 'https://app.earnlayerai.com' : 'http://localhost:3000',
+            'Access-Control-Allow-Credentials': 'true',
+          }
+        }
       );
+    }
+
+    // If checking approval status
+    if (checkApproval) {
+      const creatorProfile = await db
+        .select({
+          approvalStatus: creators.approvalStatus,
+          approvalDate: creators.approvalDate,
+          rejectionReason: creators.rejectionReason,
+          lastApprovalCheck: creators.lastApprovalCheck,
+        })
+        .from(creators)
+        .where(eq(creators.userId, session.user.id))
+        .limit(1);
+
+      if (creatorProfile.length === 0) {
+        return NextResponse.json({
+          success: true,
+          data: {
+            isApproved: false,
+            status: 'pending',
+            hasCreatorProfile: false,
+            message: 'No creator profile found. Your account is pending approval.'
+          }
+        }, {
+          headers: {
+            'Access-Control-Allow-Origin': process.env.NODE_ENV === 'production' ? 'https://app.earnlayerai.com' : 'http://localhost:3000',
+            'Access-Control-Allow-Credentials': 'true',
+          }
+        });
+      }
+
+      const profile = creatorProfile[0];
+      const isApproved = profile.approvalStatus === 'approved';
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          isApproved,
+          status: profile.approvalStatus,
+          hasCreatorProfile: true,
+          approvalDate: profile.approvalDate?.toISOString(),
+          rejectionReason: profile.rejectionReason,
+          lastApprovalCheck: profile.lastApprovalCheck?.toISOString(),
+          message: getApprovalStatusMessage(profile.approvalStatus, profile.rejectionReason)
+        }
+      }, {
+        headers: {
+          'Access-Control-Allow-Origin': process.env.NODE_ENV === 'production' ? 'https://app.earnlayerai.com' : 'http://localhost:3000',
+          'Access-Control-Allow-Credentials': 'true',
+        }
+      });
     }
 
     // Fetch user's API keys directly from database
@@ -116,5 +177,18 @@ export async function POST(request: NextRequest) {
       },
       { status: 500 }
     );
+  }
+}
+function getApprovalStatusMessage(status: string, rejectionReason?: string | null): string {
+  switch (status) {
+    case "approved":
+      return "Your account has been approved and you have full access.";
+    case "rejected":
+      return rejectionReason ? `Your account was rejected: ${rejectionReason}` : "Your account was rejected.";
+    case "suspended":
+      return "Your account has been suspended. Please contact support.";
+    case "pending":
+    default:
+      return "Your account is pending approval. You will be notified once approved.";
   }
 }

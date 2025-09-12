@@ -6,7 +6,6 @@ import { UserApprovalInterface } from '@/components/admin/UserApprovalInterface'
 
 export default function AdminUsersPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -37,6 +36,9 @@ export default function AdminUsersPage() {
     setLoading(true);
     setError('');
 
+    const formData = new FormData(e.target as HTMLFormElement);
+    const password = formData.get('password') as string;
+
     try {
       const response = await fetch('/api/admin/authenticate', {
         method: 'POST',
@@ -48,7 +50,6 @@ export default function AdminUsersPage() {
 
       if (response.ok) {
         setIsAuthenticated(true);
-        setPassword(''); // Clear password from state
       } else {
         const data = await response.json();
         setError(data.error || 'Invalid password');
@@ -71,7 +72,6 @@ export default function AdminUsersPage() {
       console.error('Logout error:', error);
     } finally {
       setIsAuthenticated(false);
-      setPassword('');
       setError('');
     }
   };

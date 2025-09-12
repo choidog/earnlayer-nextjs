@@ -1,23 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import crypto from "crypto";
+import { db } from "@/lib/db/connection";
+import { adminSessions } from "@/lib/db/schema";
+import { eq, lt } from "drizzle-orm";
 
 const authSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
-// Simple session storage for admin authentication
-const adminSessions = new Map<string, { expires: number }>();
-
-// Clean expired sessions every hour
-setInterval(() => {
-  const now = Date.now();
-  for (const [sessionId, session] of adminSessions.entries()) {
-    if (session.expires < now) {
-      adminSessions.delete(sessionId);
-    }
+// Clean expired sessions periodically
+const cleanupExpiredSessions = async () => {
+  try {
+    await db.delete(adminSessions).where(lt(adminSessions.expiresAt, new Date()));
+  } catch (error) {
+    console.error('Failed to cleanup expired sessions:', error);
   }
-}, 3600000);
+};
 
 export async function POST(request: NextRequest) {
   try {
@@ -45,10 +44,18 @@ export async function POST(request: NextRequest) {
 
     // Generate session ID
     const sessionId = crypto.randomBytes(32).toString('hex');
-    const expires = Date.now() + (3600000); // 1 hour
+    const expiresAt = new Date(Date.now() + (3600000)); // 1 hour
+    const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown';
 
-    // Store session
-    adminSessions.set(sessionId, { expires });
+    // Clean up expired sessions first
+    await cleanupExpiredSessions();
+
+    // Store session in database
+    await db.insert(adminSessions).values({
+      sessionId,
+      expiresAt,
+      ipAddress
+    });
 
     // Log successful login
     console.log(`Successful admin login from IP: ${request.headers.get('x-forwarded-for') || 'unknown'}`);
@@ -56,7 +63,7 @@ export async function POST(request: NextRequest) {
     // Set secure cookie
     const response = NextResponse.json({ 
       success: true,
-      expiresAt: new Date(expires).toISOString()
+      expiresAt: expiresAt.toISOString()
     });
     
     response.cookies.set('admin-session', sessionId, {
@@ -64,7 +71,7 @@ export async function POST(request: NextRequest) {
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
       maxAge: 3600, // 1 hour
-      path: '/admin'
+      path: '/'
     });
 
     return response;
@@ -92,24 +99,38 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ authenticated: false });
   }
 
-  const session = adminSessions.get(sessionId);
-  if (!session || session.expires < Date.now()) {
-    // Clean up expired session
-    adminSessions.delete(sessionId);
+  try {
+    const session = await db.select().from(adminSessions)
+      .where(eq(adminSessions.sessionId, sessionId))
+      .limit(1);
+
+    if (session.length === 0 || session[0].expiresAt < new Date()) {
+      // Clean up expired session
+      if (session.length > 0) {
+        await db.delete(adminSessions).where(eq(adminSessions.sessionId, sessionId));
+      }
+      return NextResponse.json({ authenticated: false });
+    }
+
+    return NextResponse.json({ 
+      authenticated: true,
+      expiresAt: session[0].expiresAt.toISOString()
+    });
+  } catch (error) {
+    console.error('Error checking admin session:', error);
     return NextResponse.json({ authenticated: false });
   }
-
-  return NextResponse.json({ 
-    authenticated: true,
-    expiresAt: new Date(session.expires).toISOString()
-  });
 }
 
 export async function DELETE(request: NextRequest) {
   const sessionId = request.cookies.get('admin-session')?.value;
   
   if (sessionId) {
-    adminSessions.delete(sessionId);
+    try {
+      await db.delete(adminSessions).where(eq(adminSessions.sessionId, sessionId));
+    } catch (error) {
+      console.error('Error deleting admin session:', error);
+    }
   }
 
   const response = NextResponse.json({ success: true });
@@ -119,11 +140,40 @@ export async function DELETE(request: NextRequest) {
 }
 
 // Helper function to check admin authentication (exported for use in other endpoints)
-export function isAdminAuthenticated(request: NextRequest): boolean {
+export async function isAdminAuthenticated(request: NextRequest): Promise<boolean> {
   const sessionId = request.cookies.get('admin-session')?.value;
   
-  if (!sessionId) return false;
+  console.log('Admin auth check:', {
+    sessionId: sessionId ? 'present' : 'missing',
+    path: request.nextUrl.pathname
+  });
+  
+  if (!sessionId) {
+    console.log('No session ID found in cookies');
+    return false;
+  }
 
-  const session = adminSessions.get(sessionId);
-  return session !== undefined && session.expires > Date.now();
+  try {
+    const session = await db.select().from(adminSessions)
+      .where(eq(adminSessions.sessionId, sessionId))
+      .limit(1);
+
+    const isValid = session.length > 0 && session[0].expiresAt > new Date();
+    
+    console.log('Session validation:', {
+      sessionExists: session.length > 0,
+      isExpired: session.length > 0 ? session[0].expiresAt < new Date() : 'no-session',
+      isValid
+    });
+
+    // Clean up expired session
+    if (session.length > 0 && !isValid) {
+      await db.delete(adminSessions).where(eq(adminSessions.sessionId, sessionId));
+    }
+    
+    return isValid;
+  } catch (error) {
+    console.error('Error checking admin authentication:', error);
+    return false;
+  }
 }

@@ -362,6 +362,50 @@ export const apikey = pgTable("apikey", {
   metadata: text("metadata"),
 });
 
+// Admin Sessions Table
+export const adminSessions = pgTable("admin_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  sessionId: varchar("session_id", { length: 128 }).unique().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  ipAddress: varchar("ip_address", { length: 45 }),
+});
+
+// Agreement System Tables
+export const agreementVersions = pgTable("agreement_versions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  versionString: varchar("version_string", { length: 50 }).notNull().unique(),
+  contentHash: varchar("content_hash", { length: 64 }).notNull().unique(),
+  contentText: text("content_text").notNull(),
+  isActive: boolean("is_active").default(true),
+  effectiveDate: timestamp("effective_date", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  createdBy: text("created_by"),
+  changeSummary: text("change_summary"),
+});
+
+export const userAgreements = pgTable("user_agreements", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  agreementVersionId: uuid("agreement_version_id").notNull().references(() => agreementVersions.id),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }).defaultNow().notNull(),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  acceptanceMethod: varchar("acceptance_method", { length: 50 }).default("clickwrap"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  uniqueUserVersion: unique().on(table.userId, table.agreementVersionId)
+}));
+
+export const agreementBannerDismissals = pgTable("agreement_banner_dismissals", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  bannerVersionId: uuid("banner_version_id").notNull().references(() => agreementVersions.id),
+  dismissedAt: timestamp("dismissed_at", { withTimezone: true }).defaultNow().notNull(),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+});
+
 // Better Auth Relations
 export const userRelations = relations(user, ({ many }) => ({
   accounts: many(account),
@@ -405,3 +449,11 @@ export type Session = typeof session.$inferSelect;
 export type NewSession = typeof session.$inferInsert;
 export type ApiKey = typeof apikey.$inferSelect;
 export type NewApiKey = typeof apikey.$inferInsert;
+export type AdminSession = typeof adminSessions.$inferSelect;
+export type NewAdminSession = typeof adminSessions.$inferInsert;
+export type AgreementVersion = typeof agreementVersions.$inferSelect;
+export type NewAgreementVersion = typeof agreementVersions.$inferInsert;
+export type UserAgreement = typeof userAgreements.$inferSelect;
+export type NewUserAgreement = typeof userAgreements.$inferInsert;
+export type AgreementBannerDismissal = typeof agreementBannerDismissals.$inferSelect;
+export type NewAgreementBannerDismissal = typeof agreementBannerDismissals.$inferInsert;

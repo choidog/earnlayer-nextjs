@@ -28,7 +28,7 @@ export async function POST(
   { params }: { params: Promise<{ userId: string }> }
 ) {
   // Check admin authentication
-  if (!isAdminAuthenticated(request)) {
+  if (!(await isAdminAuthenticated(request))) {
     return NextResponse.json(
       { error: "Unauthorized - Admin access required" },
       { status: 401 }
@@ -166,7 +166,7 @@ export async function GET(
   { params }: { params: Promise<{ userId: string }> }
 ) {
   // Check admin authentication
-  if (!isAdminAuthenticated(request)) {
+  if (!(await isAdminAuthenticated(request))) {
     return NextResponse.json(
       { error: "Unauthorized - Admin access required" },
       { status: 401 }

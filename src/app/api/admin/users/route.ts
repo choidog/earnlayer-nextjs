@@ -22,7 +22,7 @@ interface AdminUser {
 
 export async function GET(request: NextRequest) {
   // Check admin authentication
-  if (!isAdminAuthenticated(request)) {
+  if (!(await isAdminAuthenticated(request))) {
     return NextResponse.json(
       { error: "Unauthorized - Admin access required" },
       { status: 401 }
