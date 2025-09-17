@@ -137,7 +137,7 @@ export const ads = pgTable("ads", {
 
 export const creators = pgTable("creators", {
   id: uuid("id").defaultRandom().primaryKey(),
-  userId: text("user_id").references(() => user.id), // Link to Better Auth user
+  userId: text("user_id").references(() => users.id), // Link to Frontend Auth user
   name: varchar("name", { length: 255 }).notNull(),
   email: varchar("email", { length: 255 }).notNull().unique(),
   bio: text("bio"),
@@ -215,7 +215,7 @@ export const adClicksRelations = relations(adClicks, ({ one }) => ({
 }));
 
 export const creatorsRelations = relations(creators, ({ one, many }) => ({
-  user: one(user, { fields: [creators.userId], references: [user.id] }), // Link to Better Auth user
+  user: one(users, { fields: [creators.userId], references: [users.id] }), // Link to Frontend Auth user
   sessions: many(chatSessions),
   impressions: many(adImpressions),
 }));
@@ -265,13 +265,32 @@ export const defaultAdRelationshipRelations = relations(defaultAdRelationship, (
   }),
 }));
 
-// Better Auth Tables (using correct schema from CLI)
-export const user = pgTable("user", {
+// Frontend Auth Tables (simplified authentication)
+export const users = pgTable("users", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  name: text("name").notNull(),
+  picture: text("picture"),
+  emailVerified: boolean("email_verified").default(false).notNull(),
+  provider: text("provider").default("google").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+
+export const apiKeys = pgTable("api_keys", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-  emailVerified: boolean("email_verified").default(false).notNull(),
-  image: text("image"),
+  key: text("key").notNull().unique(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  permissions: jsonb("permissions").default({}).notNull(),
+  metadata: jsonb("metadata").default({}).notNull(),
+  rateLimit: jsonb("rate_limit").default({}).notNull(),
+  lastUsedAt: timestamp("last_used_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
@@ -279,87 +298,18 @@ export const user = pgTable("user", {
     .notNull(),
 });
 
-export const account = pgTable("account", {
+export const apiKeyUsage = pgTable("api_key_usage", {
   id: text("id").primaryKey(),
-  accountId: text("account_id").notNull(),
-  providerId: text("provider_id").notNull(),
-  userId: text("user_id")
+  apiKeyId: text("api_key_id")
     .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  accessToken: text("access_token"),
-  refreshToken: text("refresh_token"),
-  idToken: text("id_token"),
-  accessTokenExpiresAt: timestamp("access_token_expires_at"),
-  refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
-  scope: text("scope"),
-  password: text("password"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at")
-    .$onUpdate(() => new Date())
-    .notNull(),
-});
-
-export const session = pgTable("session", {
-  id: text("id").primaryKey(),
-  expiresAt: timestamp("expires_at").notNull(),
-  token: text("token").notNull().unique(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at")
-    .$onUpdate(() => new Date())
-    .notNull(),
+    .references(() => apiKeys.id, { onDelete: "cascade" }),
+  endpoint: text("endpoint").notNull(),
+  method: text("method").notNull(),
+  statusCode: integer("status_code").notNull(),
+  responseTime: integer("response_time"),
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-});
-
-export const verificationToken = pgTable("verification_token", {
-  identifier: text("identifier").notNull(),
-  token: text("token").notNull(),
-  expires: timestamp("expires", { mode: "date" }).notNull(),
-}, (vt) => ({
-  compoundKey: primaryKey({ columns: [vt.identifier, vt.token] }),
-}));
-
-// Better Auth verification table (using exact CLI schema)
-export const verification = pgTable("verification", {
-  id: text("id").primaryKey(),
-  identifier: text("identifier").notNull(),
-  value: text("value").notNull(),
-  expiresAt: timestamp("expires_at").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at")
-    .defaultNow()
-    .$onUpdate(() => new Date())
-    .notNull(),
-});
-
-// Better Auth API Key table (official schema from CLI)
-export const apikey = pgTable("apikey", {
-  id: text("id").primaryKey(),
-  name: text("name"),
-  start: text("start"),
-  prefix: text("prefix"),
-  key: text("key").notNull(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  refillInterval: integer("refill_interval"),
-  refillAmount: integer("refill_amount"),
-  lastRefillAt: timestamp("last_refill_at"),
-  enabled: boolean("enabled").default(true),
-  rateLimitEnabled: boolean("rate_limit_enabled").default(true),
-  rateLimitTimeWindow: integer("rate_limit_time_window").default(86400000),
-  rateLimitMax: integer("rate_limit_max").default(10),
-  requestCount: integer("request_count").default(0),
-  remaining: integer("remaining"),
-  lastRequest: timestamp("last_request"),
-  expiresAt: timestamp("expires_at"),
-  createdAt: timestamp("created_at").notNull(),
-  updatedAt: timestamp("updated_at").notNull(),
-  permissions: text("permissions"),
-  metadata: text("metadata"),
 });
 
 // Admin Sessions Table
@@ -386,7 +336,7 @@ export const agreementVersions = pgTable("agreement_versions", {
 
 export const userAgreements = pgTable("user_agreements", {
   id: uuid("id").primaryKey().defaultRandom(),
-  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   agreementVersionId: uuid("agreement_version_id").notNull().references(() => agreementVersions.id),
   acceptedAt: timestamp("accepted_at", { withTimezone: true }).defaultNow().notNull(),
   ipAddress: text("ip_address"),
@@ -399,31 +349,28 @@ export const userAgreements = pgTable("user_agreements", {
 
 export const agreementBannerDismissals = pgTable("agreement_banner_dismissals", {
   id: uuid("id").primaryKey().defaultRandom(),
-  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   bannerVersionId: uuid("banner_version_id").notNull().references(() => agreementVersions.id),
   dismissedAt: timestamp("dismissed_at", { withTimezone: true }).defaultNow().notNull(),
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
 });
 
-// Better Auth Relations
-export const userRelations = relations(user, ({ many }) => ({
-  accounts: many(account),
-  sessions: many(session),
+// Frontend Auth Relations
+export const usersRelations = relations(users, ({ many }) => ({
   creators: many(creators), // Link to creator profiles
-  apiKeys: many(apikey), // Link to API keys
+  apiKeys: many(apiKeys), // Link to API keys
+  userAgreements: many(userAgreements),
+  agreementBannerDismissals: many(agreementBannerDismissals),
 }));
 
-export const accountRelations = relations(account, ({ one }) => ({
-  user: one(user, { fields: [account.userId], references: [user.id] }),
+export const apiKeysRelations = relations(apiKeys, ({ one, many }) => ({
+  user: one(users, { fields: [apiKeys.userId], references: [users.id] }),
+  usage: many(apiKeyUsage),
 }));
 
-export const sessionRelations = relations(session, ({ one }) => ({
-  user: one(user, { fields: [session.userId], references: [user.id] }),
-}));
-
-export const apikeyRelations = relations(apikey, ({ one }) => ({
-  user: one(user, { fields: [apikey.userId], references: [user.id] }),
+export const apiKeyUsageRelations = relations(apiKeyUsage, ({ one }) => ({
+  apiKey: one(apiKeys, { fields: [apiKeyUsage.apiKeyId], references: [apiKeys.id] }),
 }));
 
 // Type exports
@@ -441,14 +388,12 @@ export type ChatMessage = typeof chatMessages.$inferSelect;
 export type NewChatMessage = typeof chatMessages.$inferInsert;
 export type DefaultAdRelationship = typeof defaultAdRelationship.$inferSelect;
 export type NewDefaultAdRelationship = typeof defaultAdRelationship.$inferInsert;
-export type User = typeof user.$inferSelect;
-export type NewUser = typeof user.$inferInsert;
-export type Account = typeof account.$inferSelect;
-export type NewAccount = typeof account.$inferInsert;
-export type Session = typeof session.$inferSelect;
-export type NewSession = typeof session.$inferInsert;
-export type ApiKey = typeof apikey.$inferSelect;
-export type NewApiKey = typeof apikey.$inferInsert;
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
+export type ApiKey = typeof apiKeys.$inferSelect;
+export type NewApiKey = typeof apiKeys.$inferInsert;
+export type ApiKeyUsage = typeof apiKeyUsage.$inferSelect;
+export type NewApiKeyUsage = typeof apiKeyUsage.$inferInsert;
 export type AdminSession = typeof adminSessions.$inferSelect;
 export type NewAdminSession = typeof adminSessions.$inferInsert;
 export type AgreementVersion = typeof agreementVersions.$inferSelect;
