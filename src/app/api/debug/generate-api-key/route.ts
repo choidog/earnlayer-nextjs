@@ -1,38 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
-
+import { db } from "@/lib/db/connection";
+import { apiKeys } from "@/lib/db/schema";
+import crypto from "crypto";
 
 export async function POST(request: NextRequest) {
   try {
     console.log("🔧 [Debug] Generating API key for testing...");
-    
-    // Get session first to ensure user is authenticated
-    const session = await 
-      headers: request.headers,
-    });
 
-    if (!session) {
-      // For debugging purposes, let's try to create an API key anyway
-      console.log("⚠️ [Debug] No session found, but proceeding for debug");
-    }
+    // Frontend auth: Generate API key directly
+    const userId = "debug-user-" + Date.now();
 
-    const userId = session?.user?.id || "debug-user";
-    
     console.log("🔧 [Debug] Creating API key for user:", userId);
-    
-    // Create API key using Better Auth
-    const apiKeyResult = await auth.api.createApiKey({
-      userId: userId,
+
+    // Generate API key
+    const apiKey = `earnlayer_debug_${crypto.randomBytes(32).toString('hex')}`;
+    const newApiKey = {
+      id: crypto.randomUUID(),
       name: "Debug Test Key",
-      expiresIn: 30 * 24 * 60 * 60 * 1000, // 30 days
-    });
+      key: apiKey,
+      userId,
+      permissions: { debug: ["read", "write"] },
+      metadata: { type: "debug" },
+      rateLimit: { window: 60000, max: 1000 },
+    };
+
+    const result = await db.insert(apiKeys).values(newApiKey).returning();
     
-    console.log("✅ [Debug] API key created:", apiKeyResult.key?.substring(0, 20) + "...");
-    
+    console.log("✅ [Debug] API key created:", apiKey.substring(0, 20) + "...");
+
     return NextResponse.json({
       success: true,
-      apiKey: apiKeyResult.key,
-      keyId: apiKeyResult.keyId,
-      expiresAt: apiKeyResult.expiresAt,
+      apiKey: apiKey,
+      keyId: result[0].id,
+      createdAt: result[0].createdAt,
       message: "API key generated for testing"
     });
     
