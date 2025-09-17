@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth/config";
+
 
 export async function POST(request: NextRequest) {
   try {
     console.log("🔧 [Debug] Generating API key for testing...");
     
     // Get session first to ensure user is authenticated
-    const session = await auth.api.getSession({
+    const session = await 
       headers: request.headers,
     });
 

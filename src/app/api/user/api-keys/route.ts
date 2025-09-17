@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth/config";
+
 import { db } from "@/lib/db/connection";
 import { apikey, creators } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
     const checkApproval = searchParams.get('approval') === 'true';
 
     // Get the authenticated user
-    const session = await auth.api.getSession({
+    const session = await 
       headers: request.headers,
     });
 
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
           lastApprovalCheck: creators.lastApprovalCheck,
         })
         .from(creators)
-        .where(eq(creators.userId, session.user.id))
+        .where(eq(creators.userId, userId))
         .limit(1);
 
       if (creatorProfile.length === 0) {
@@ -96,7 +96,7 @@ export async function GET(request: NextRequest) {
         createdAt: apikey.createdAt,
       })
       .from(apikey)
-      .where(eq(apikey.userId, session.user.id))
+      .where(eq(apikey.userId, userId))
       .orderBy(apikey.createdAt);
 
     // Format response with actual key values
@@ -136,7 +136,7 @@ export async function GET(request: NextRequest) {
 // Optional: Create new API key endpoint  
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth.api.getSession({
+    const session = await 
       headers: request.headers,
     });
 
@@ -152,7 +152,7 @@ export async function POST(request: NextRequest) {
 
     // Create new API key using Better Auth
     const newApiKey = await auth.api.createApiKey({
-      userId: session.user.id,
+      userId: userId,
       name: name || 'New API Key',
       expiresIn: 30 * 24 * 60 * 60 * 1000, // 30 days
     });

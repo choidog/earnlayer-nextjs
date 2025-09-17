@@ -3,7 +3,7 @@ import { db } from "@/lib/db/connection";
 import { chatSessions, creators } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { auth } from "@/lib/auth/config";
+
 import crypto from "crypto";
 import { Logger } from "@/lib/logging/logger";
 import { successResponse, errorResponse, validationErrorWithSchema } from "@/lib/api/response";
@@ -45,11 +45,11 @@ export async function POST(request: NextRequest) {
     // Get Better Auth session for auto-creator creation (optional fallback)
     let session = null;
     try {
-      session = await auth.api.getSession({
+      session = await 
         headers: request.headers,
       });
       if (session?.user) {
-        logger.setContext({ userId: session.user.id, userEmail: session.user.email });
+        logger.setContext({ userId: userId, userEmail: session.user.email });
       }
     } catch (error) {
       logger.warn("No authenticated session found");

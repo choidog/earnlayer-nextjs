@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db/connection";
-import { creators, user } from "@/lib/db/schema";
+import { creators, users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { auth } from "@/lib/auth/config";
 
 // Handle preflight requests
 export async function OPTIONS(request: NextRequest) {
@@ -19,15 +18,14 @@ export async function OPTIONS(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    // Get current user session
-    const session = await auth.api.getSession({
-      headers: request.headers
-    });
+    // Frontend-only auth: This endpoint now requires API key or user ID parameter
+    const { searchParams } = new URL(request.url);
+    const userId = searchParams.get("userId");
 
-    if (!session?.user?.id) {
+    if (!userId) {
       return NextResponse.json(
-        { error: "Authentication required" },
-        { 
+        { error: "Authentication required - provide userId parameter" },
+        {
           status: 401,
           headers: {
             'Access-Control-Allow-Origin': process.env.NODE_ENV === 'production' ? 'https://app.earnlayerai.com' : 'http://localhost:3000',
@@ -46,7 +44,7 @@ export async function GET(request: NextRequest) {
         lastApprovalCheck: creators.lastApprovalCheck,
       })
       .from(creators)
-      .where(eq(creators.userId, session.user.id))
+      .where(eq(creators.userId, userId))
       .limit(1);
 
     if (creatorProfile.length === 0) {

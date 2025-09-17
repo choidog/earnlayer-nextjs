@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth/config";
+
 import { agreementService } from "@/services/AgreementService";
 import { z } from "zod";
 
@@ -10,7 +10,7 @@ const dismissSchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     // Get authenticated user
-    const session = await auth.api.getSession({
+    const session = await 
       headers: request.headers
     });
 
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     const userAgent = request.headers.get('user-agent') || undefined;
 
     // Record banner dismissal
-    await agreementService.dismissBanner(session.user.id, versionId, {
+    await agreementService.dismissBanner(userId, versionId, {
       ipAddress,
       userAgent,
     });

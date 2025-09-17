@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth/config";
+
 import { agreementService } from "@/services/AgreementService";
 import { z } from "zod";
 
@@ -11,7 +11,7 @@ const acceptSchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     // Get authenticated user
-    const session = await auth.api.getSession({
+    const session = await 
       headers: request.headers
     });
 
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     const userAgent = request.headers.get('user-agent') || undefined;
 
     // Record acceptance
-    await agreementService.acceptAgreement(session.user.id, versionId, {
+    await agreementService.acceptAgreement(userId, versionId, {
       ipAddress,
       userAgent,
       acceptanceMethod,

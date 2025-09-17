@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth/config";
+
 import { agreementService } from "@/services/AgreementService";
 
 export async function GET(request: NextRequest) {
   try {
     // Get authenticated user
-    const session = await auth.api.getSession({
+    const session = await 
       headers: request.headers
     });
 
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const status = await agreementService.getUserAgreementStatus(session.user.id);
+    const status = await agreementService.getUserAgreementStatus(userId);
 
     return NextResponse.json({
       success: true,

@@ -5,7 +5,7 @@ import { eq, and, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { AuthenticationError, AuthorizationError, RateLimitError } from "@/lib/api/errors";
 import { errorResponse } from "@/lib/api/response";
-import { auth } from "@/lib/auth/config";
+
 import { logApiKeyValidation, logError } from "@/lib/logging/logger";
 import crypto from "crypto";
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db/connection";
 import { creators, user } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { auth } from "@/lib/auth/config";
+
 
 // Handle preflight requests
 export async function OPTIONS(request: NextRequest) {
@@ -20,7 +20,7 @@ export async function OPTIONS(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     // Get current user session
-    const session = await auth.api.getSession({
+    const session = await 
       headers: request.headers
     });
 
@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
         lastApprovalCheck: creators.lastApprovalCheck,
       })
       .from(creators)
-      .where(eq(creators.userId, session.user.id))
+      .where(eq(creators.userId, userId))
       .limit(1);
 
     if (creatorProfile.length === 0) {

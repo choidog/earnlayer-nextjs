@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db/connection";
 import { creators, user } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { auth } from "@/lib/auth/config";
+
 import crypto from "crypto";
 
 // Helper function to generate unique creator name
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     console.log("🔍 [Creator Profile] Checking creator profile for authenticated user...");
     
     // Get session from Better Auth
-    const session = await auth.api.getSession({
+    const session = await 
       headers: request.headers,
     });
 
@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const userId = session.user.id;
+    const userId = userId;
     console.log("✅ [Creator Profile] Authenticated user ID:", userId);
 
     // Look up creator profile by user_id
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
     console.log("🎯 [Creator Profile] Creating creator profile for authenticated user...");
     
     // Get session from Better Auth
-    const session = await auth.api.getSession({
+    const session = await 
       headers: request.headers,
     });
 
@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const userId = session.user.id;
+    const userId = userId;
     const userEmail = session.user.email;
     const userName = session.user.name;
     
