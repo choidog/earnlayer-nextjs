@@ -19,12 +19,11 @@ export async function OPTIONS(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    // Get current user session
-    const session = await 
-      headers: request.headers
-    });
+    // Frontend auth: require userId parameter
+    const { searchParams } = new URL(request.url);
+    const userId = searchParams.get("userId");
 
-    if (!session?.user?.id) {
+    if (!userId) {
       return NextResponse.json(
         { error: "Authentication required" },
         { 

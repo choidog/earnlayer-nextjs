@@ -10,11 +10,10 @@ const dismissSchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     // Get authenticated user
-    const session = await 
-      headers: request.headers
-    });
+    const { searchParams } = new URL(request.url);
+    const userId = searchParams.get("userId");
 
-    if (!session?.user?.id) {
+    if (!userId) {
       return NextResponse.json(
         { error: "Authentication required" },
         { 
