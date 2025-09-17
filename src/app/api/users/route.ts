@@ -4,6 +4,8 @@ import { users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import crypto from "crypto";
 
+console.log("🚀 Frontend Auth Users API - Loaded");
+
 // POST /api/users - Create or update user
 export async function POST(request: NextRequest) {
   try {
