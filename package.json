@@ -25,12 +25,14 @@
     "db:export": "tsx scripts/db-export.ts",
     "db:import": "tsx scripts/db-import.ts",
     "db:migrate-frontend-auth": "npx tsx scripts/migrate-to-frontend-auth.ts",
-    "db:cleanup-better-auth": "npx tsx scripts/cleanup-better-auth.ts"
+    "db:cleanup-better-auth": "npx tsx scripts/cleanup-better-auth.ts",
+    "db:fix-columns": "npx tsx scripts/fix-duplicate-columns.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.4",
     "@neondatabase/serverless": "^1.0.1",
     "@types/uuid": "^10.0.0",
+    "better-auth": "^1.3.11",
     "dotenv": "^17.2.1",
     "drizzle-kit": "^0.31.4",
     "drizzle-orm": "^0.44.5",
