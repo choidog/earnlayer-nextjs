@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db/connection";
-import { users as usersTable, creators, apiKeys } from "@/lib/db/schema";
+import { creators, apiKeys } from "@/lib/db/schema";
 import { eq, sql, desc, and, isNull } from "drizzle-orm";
 import { isAdminAuthenticated } from "../authenticate/route";
 
@@ -38,87 +38,83 @@ export async function GET(request: NextRequest) {
 
     console.log("Filter:", filter, "Search:", search);
 
-    // First, let's do a simple query to see if we have any users at all
-    const allUsers = await db.select().from(usersTable).limit(5);
-    console.log("Total users found:", allUsers.length);
-    console.log("Sample users:", allUsers.map(u => ({ id: u.id, email: u.email, name: u.name })));
+    // First, let's do a simple query to see if we have any users at all (using Better Auth table)
+    const allUsers = await db.execute(sql`SELECT id, email, name, email_verified, created_at FROM "user" LIMIT 5`);
+    console.log("Total users found:", allUsers.rows.length);
+    console.log("Sample users:", allUsers.rows.map(u => ({ id: u.id, email: u.email, name: u.name })));
 
-    // Build the query
-    let whereConditions = [];
-
+    // Get all users with creator info and statistics using raw SQL
+    let rawUsers;
     if (search) {
-      whereConditions.push(
-        sql`(${usersTable.email} ILIKE ${'%' + search + '%'} OR ${usersTable.name} ILIKE ${'%' + search + '%'})`
-      );
+      const searchPattern = `%${search}%`;
+      rawUsers = await db.execute(sql`
+        SELECT
+          u.id,
+          u.email,
+          u.name,
+          u.created_at,
+          u.updated_at,
+          u.email_verified,
+          u.image as picture,
+          c.id as creator_id,
+          c.approval_status,
+          c.approval_date,
+          c.rejection_reason,
+          c.last_approval_check,
+          COUNT(DISTINCT ak.id) as api_key_count
+        FROM "user" u
+        LEFT JOIN creators c ON u.id = c.user_id
+        LEFT JOIN api_keys ak ON u.id = ak.user_id
+        WHERE (u.email ILIKE ${searchPattern} OR u.name ILIKE ${searchPattern})
+        GROUP BY u.id, u.email, u.name, u.created_at, u.updated_at, u.email_verified, u.image,
+                 c.id, c.approval_status, c.approval_date, c.rejection_reason, c.last_approval_check
+        ORDER BY u.created_at DESC
+      `);
+    } else {
+      rawUsers = await db.execute(sql`
+        SELECT
+          u.id,
+          u.email,
+          u.name,
+          u.created_at,
+          u.updated_at,
+          u.email_verified,
+          u.image as picture,
+          c.id as creator_id,
+          c.approval_status,
+          c.approval_date,
+          c.rejection_reason,
+          c.last_approval_check,
+          COUNT(DISTINCT ak.id) as api_key_count
+        FROM "user" u
+        LEFT JOIN creators c ON u.id = c.user_id
+        LEFT JOIN api_keys ak ON u.id = ak.user_id
+        GROUP BY u.id, u.email, u.name, u.created_at, u.updated_at, u.email_verified, u.image,
+                 c.id, c.approval_status, c.approval_date, c.rejection_reason, c.last_approval_check
+        ORDER BY u.created_at DESC
+      `);
     }
-
-    // Get all users with creator info and statistics
-    const usersQuery = db
-      .select({
-        id: usersTable.id,
-        email: usersTable.email,
-        name: usersTable.name,
-        createdAt: usersTable.createdAt,
-        updatedAt: usersTable.updatedAt,
-        emailVerified: usersTable.emailVerified,
-        picture: usersTable.picture,
-        // Creator info
-        creatorId: creators.id,
-        approvalStatus: creators.approvalStatus,
-        approvalDate: creators.approvalDate,
-        rejectionReason: creators.rejectionReason,
-        lastApprovalCheck: creators.lastApprovalCheck,
-        // Statistics
-        apiKeyCount: sql<number>`COUNT(DISTINCT ${apiKeys.id})`,
-      })
-      .from(usersTable)
-      .leftJoin(creators, eq(usersTable.id, creators.userId))
-      .leftJoin(apiKeys, eq(usersTable.id, apiKeys.userId))
-      .groupBy(
-        usersTable.id,
-        usersTable.email,
-        usersTable.name,
-        usersTable.createdAt,
-        usersTable.updatedAt,
-        usersTable.emailVerified,
-        usersTable.picture,
-        creators.id,
-        creators.approvalStatus,
-        creators.approvalDate,
-        creators.rejectionReason,
-        creators.lastApprovalCheck
-      )
-      .orderBy(desc(usersTable.createdAt));
-
-    // Add where conditions if any
-    if (whereConditions.length > 0) {
-      whereConditions.forEach(condition => {
-        usersQuery.where(condition);
-      });
-    }
-
-    const rawUsers = await usersQuery;
     console.log("Raw users from complex query:", rawUsers.length);
     console.log("Sample raw user:", rawUsers[0]);
 
     // Transform and filter the results
-    const users: AdminUser[] = rawUsers
-      .map(user => ({
+    const users: AdminUser[] = (rawUsers as any[])
+      .map((user: any) => ({
         id: user.id,
         email: user.email,
         name: user.name || 'Unknown',
-        createdAt: user.createdAt?.toISOString() || new Date().toISOString(),
-        emailVerified: user.emailVerified,
-        approvalStatus: user.approvalStatus || 'pending',
-        approvalDate: user.approvalDate?.toISOString(),
-        rejectionReason: user.rejectionReason || undefined,
-        lastApprovalCheck: user.lastApprovalCheck?.toISOString(),
-        apiKeyCount: user.apiKeyCount || 0,
+        createdAt: user.created_at ? new Date(user.created_at).toISOString() : new Date().toISOString(),
+        emailVerified: user.email_verified,
+        approvalStatus: user.approval_status || 'pending',
+        approvalDate: user.approval_date ? new Date(user.approval_date).toISOString() : undefined,
+        rejectionReason: user.rejection_reason || undefined,
+        lastApprovalCheck: user.last_approval_check ? new Date(user.last_approval_check).toISOString() : undefined,
+        apiKeyCount: parseInt(user.api_key_count) || 0,
         lastLoginAt: undefined,
-        hasCreatorProfile: !!user.creatorId,
-        creatorId: user.creatorId
+        hasCreatorProfile: !!user.creator_id,
+        creatorId: user.creator_id
       }))
-      .filter(user => {
+      .filter((user: AdminUser) => {
         if (filter === 'all') return true;
         if (filter === 'pending') return user.approvalStatus === 'pending';
         if (filter === 'approved') return user.approvalStatus === 'approved';
