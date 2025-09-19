@@ -30,13 +30,22 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    console.log("Admin users endpoint hit");
+
     const { searchParams } = new URL(request.url);
-    const filter = searchParams.get('filter') || 'all'; // all, pending, approved, rejected, suspended
+    const filter = searchParams.get('filter') || 'all';
     const search = searchParams.get('search') || '';
+
+    console.log("Filter:", filter, "Search:", search);
+
+    // First, let's do a simple query to see if we have any users at all
+    const allUsers = await db.select().from(usersTable).limit(5);
+    console.log("Total users found:", allUsers.length);
+    console.log("Sample users:", allUsers.map(u => ({ id: u.id, email: u.email, name: u.name })));
 
     // Build the query
     let whereConditions = [];
-    
+
     if (search) {
       whereConditions.push(
         sql`(${usersTable.email} ILIKE ${'%' + search + '%'} OR ${usersTable.name} ILIKE ${'%' + search + '%'})`
@@ -89,6 +98,8 @@ export async function GET(request: NextRequest) {
     }
 
     const rawUsers = await usersQuery;
+    console.log("Raw users from complex query:", rawUsers.length);
+    console.log("Sample raw user:", rawUsers[0]);
 
     // Transform and filter the results
     const users: AdminUser[] = rawUsers
