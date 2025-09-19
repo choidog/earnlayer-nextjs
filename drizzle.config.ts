@@ -15,4 +15,8 @@ export default defineConfig({
   },
   verbose: true,
   strict: true,
+  // Add connection configuration for better stability
+  introspect: {
+    casing: "snake_case"
+  }
 });

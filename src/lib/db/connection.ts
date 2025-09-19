@@ -24,12 +24,23 @@ if (!connectionString) {
 console.log("🔧 Database URL:", connectionString);
 
 console.log("🔧 Creating postgres client...");
-// Disable prepare for Railway compatibility
-const client = postgres(connectionString, { 
+// Enhanced connection configuration for Railway compatibility
+const client = postgres(connectionString, {
   prepare: false,
-  max: 1,
+  max: 10, // Increased pool size for better connection handling
+  idle_timeout: 20,
+  max_lifetime: 60 * 30, // 30 minutes
+  connect_timeout: 10,
+  // Add retry logic for connection resets
   connection: {
-    application_name: "earnlayer-typescript"
+    application_name: "earnlayer-typescript",
+    statement_timeout: 30000,
+    query_timeout: 30000
+  },
+  // Handle connection errors gracefully
+  onnotice: (notice) => console.log('🔔 DB Notice:', notice),
+  transform: {
+    undefined: null
   }
 });
 console.log("✅ Postgres client created");

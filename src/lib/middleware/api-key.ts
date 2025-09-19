@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db/connection";
-import { apikey } from "@/lib/db/schema";
+import { apiKeys } from "@/lib/db/schema";
 import { eq, and, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { AuthenticationError, AuthorizationError, RateLimitError } from "@/lib/api/errors";
@@ -109,39 +109,29 @@ export async function validateApiKey(request: NextRequest): Promise<ApiKeyValida
 
     const apiKeyResults = await db
       .select({
-        id: apikey.id,
-        userId: apikey.userId,
-        name: apikey.name,
-        key: apikey.key,
-        enabled: apikey.enabled,
-        rateLimitEnabled: apikey.rateLimitEnabled,
-        rateLimitMax: apikey.rateLimitMax,
-        rateLimitTimeWindow: apikey.rateLimitTimeWindow,
-        requestCount: apikey.requestCount,
-        remaining: apikey.remaining,
-        lastRequest: apikey.lastRequest,
-        expiresAt: apikey.expiresAt,
-        permissions: apikey.permissions,
+        id: apiKeys.id,
+        userId: apiKeys.userId,
+        name: apiKeys.name,
+        key: apiKeys.key,
+        permissions: apiKeys.permissions,
+        metadata: apiKeys.metadata,
+        rateLimit: apiKeys.rateLimit,
+        lastUsedAt: apiKeys.lastUsedAt,
+        createdAt: apiKeys.createdAt,
+        updatedAt: apiKeys.updatedAt,
       })
-      .from(apikey)
-      .where(
-        and(
-          eq(apikey.key, apiKeyValue),
-          eq(apikey.enabled, true),
-          isNull(apikey.expiresAt) // For now, only support non-expiring keys
-        )
-      )
+      .from(apiKeys)
+      .where(eq(apiKeys.key, apiKeyValue))
       .limit(1);
 
-    // Also check if any keys exist with this value (regardless of enabled/expired status)
+    // Also check if any keys exist with this value
     const allKeysWithValue = await db
       .select({
-        id: apikey.id,
-        enabled: apikey.enabled,
-        expiresAt: apikey.expiresAt,
+        id: apiKeys.id,
+        metadata: apiKeys.metadata,
       })
-      .from(apikey)
-      .where(eq(apikey.key, apiKeyValue))
+      .from(apiKeys)
+      .where(eq(apiKeys.key, apiKeyValue))
       .limit(5);
 
     if (apiKeyResults.length === 0) {
@@ -149,10 +139,9 @@ export async function validateApiKey(request: NextRequest): Promise<ApiKeyValida
         endpoint,
         requestId,
         success: false,
-        reason: `Database query result: No valid keys found. All key matches: ${JSON.stringify(allKeysWithValue.map(k => ({ 
-          id: k.id, 
-          enabled: k.enabled, 
-          expired: k.expiresAt ? (new Date() > k.expiresAt) : false
+        reason: `Database query result: No valid keys found. All key matches: ${JSON.stringify(allKeysWithValue.map(k => ({
+          id: k.id,
+          metadata: k.metadata
         })))}`,
         ipAddress,
       });
@@ -165,41 +154,32 @@ export async function validateApiKey(request: NextRequest): Promise<ApiKeyValida
 
     const apiKeyData = apiKeyResults[0];
 
-    // Check if key is expired (if expiresAt is set)
-    if (apiKeyData.expiresAt && new Date() > apiKeyData.expiresAt) {
-      logApiKeyValidation({
-        endpoint,
-        requestId,
-        success: false,
-        reason: 'API key has expired',
-        userId: apiKeyData.userId,
-        ipAddress,
-      });
-      
-      return {
-        valid: false,
-        error: "API key has expired"
-      };
-    }
+    // Parse rate limit settings from JSON
+    const rateLimit = (apiKeyData.rateLimit as any) || {};
+    const rateLimitEnabled = rateLimit.enabled || false;
+    const rateLimitMax = rateLimit.max || 100;
+    const rateLimitTimeWindow = rateLimit.timeWindow || 86400000; // 24 hours
 
     // Check rate limits if enabled
-    if (apiKeyData.rateLimitEnabled) {
+    if (rateLimitEnabled) {
       const now = new Date();
-      const timeWindow = apiKeyData.rateLimitTimeWindow || 86400000; // Default 24 hours
-      const maxRequests = apiKeyData.rateLimitMax || 10;
+      const timeWindow = rateLimitTimeWindow;
+      const maxRequests = rateLimitMax;
       
       // Calculate time window start
       const windowStart = new Date(now.getTime() - timeWindow);
       
       // If last request was outside the current window, reset counter
-      const shouldResetCounter = !apiKeyData.lastRequest || 
-        apiKeyData.lastRequest < windowStart;
-      
-      let currentCount = shouldResetCounter ? 0 : (apiKeyData.requestCount || 0);
+      const shouldResetCounter = !apiKeyData.lastUsedAt ||
+        apiKeyData.lastUsedAt < windowStart;
+
+      // Get current request count from metadata
+      const metadata = (apiKeyData.metadata as any) || {};
+      let currentCount = shouldResetCounter ? 0 : (metadata.requestCount || 0);
       
       if (currentCount >= maxRequests) {
-        const resetTime = apiKeyData.lastRequest 
-          ? new Date(apiKeyData.lastRequest.getTime() + timeWindow).getTime()
+        const resetTime = apiKeyData.lastUsedAt
+          ? new Date(apiKeyData.lastUsedAt.getTime() + timeWindow).getTime()
           : now.getTime() + timeWindow;
         
         logApiKeyValidation({
@@ -220,14 +200,19 @@ export async function validateApiKey(request: NextRequest): Promise<ApiKeyValida
       }
 
       // Update request count and last request time
+      const updatedMetadata = {
+        ...metadata,
+        requestCount: currentCount + 1,
+        remaining: maxRequests - (currentCount + 1)
+      };
+
       await db
-        .update(apikey)
+        .update(apiKeys)
         .set({
-          requestCount: currentCount + 1,
-          lastRequest: now,
-          remaining: maxRequests - (currentCount + 1)
+          metadata: updatedMetadata,
+          lastUsedAt: now
         })
-        .where(eq(apikey.id, apiKeyData.id));
+        .where(eq(apiKeys.id, apiKeyData.id));
 
       logApiKeyValidation({
         endpoint,
@@ -248,20 +233,26 @@ export async function validateApiKey(request: NextRequest): Promise<ApiKeyValida
           rateLimitTimeWindow: timeWindow,
           requestCount: currentCount + 1,
           remaining: maxRequests - (currentCount + 1),
-          permissions: apiKeyData.permissions,
+          permissions: apiKeyData.permissions as string,
         },
         remainingRequests: maxRequests - (currentCount + 1)
       };
     }
 
     // No rate limiting - just track the request
+    const metadata = (apiKeyData.metadata as any) || {};
+    const updatedMetadata = {
+      ...metadata,
+      requestCount: (metadata.requestCount || 0) + 1
+    };
+
     await db
-      .update(apikey)
+      .update(apiKeys)
       .set({
-        requestCount: (apiKeyData.requestCount || 0) + 1,
-        lastRequest: new Date()
+        metadata: updatedMetadata,
+        lastUsedAt: new Date()
       })
-      .where(eq(apikey.id, apiKeyData.id));
+      .where(eq(apiKeys.id, apiKeyData.id));
 
     logApiKeyValidation({
       endpoint,
@@ -280,9 +271,9 @@ export async function validateApiKey(request: NextRequest): Promise<ApiKeyValida
         rateLimitEnabled: false,
         rateLimitMax: 0,
         rateLimitTimeWindow: 0,
-        requestCount: (apiKeyData.requestCount || 0) + 1,
+        requestCount: (metadata.requestCount || 0) + 1,
         remaining: null,
-        permissions: apiKeyData.permissions,
+        permissions: apiKeyData.permissions as string,
       }
     };
 
