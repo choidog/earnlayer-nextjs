@@ -37,8 +37,13 @@ export async function POST(
 
   try {
     const { userId } = await params;
+    console.log("Processing approval for userId:", userId);
+
     const body = await request.json();
+    console.log("Request body:", body);
+
     const { status, reason } = approvalSchema.parse(body);
+    console.log("Parsed status:", status, "reason:", reason);
 
     // Validate user exists
     const userExists = await db
@@ -145,6 +150,7 @@ export async function POST(
 
   } catch (error) {
     if (error instanceof z.ZodError) {
+      console.error("Validation error:", error.errors);
       return NextResponse.json(
         { error: "Invalid request", details: error.errors },
         { status: 400 }
@@ -152,8 +158,14 @@ export async function POST(
     }
 
     console.error("Error updating user approval status:", error);
+    console.error("Error stack:", error instanceof Error ? error.stack : 'No stack trace');
+    console.error("Error message:", error instanceof Error ? error.message : String(error));
+
     return NextResponse.json(
-      { error: "Failed to update approval status" },
+      {
+        error: "Failed to update approval status",
+        details: error instanceof Error ? error.message : String(error)
+      },
       { status: 500 }
     );
   }
