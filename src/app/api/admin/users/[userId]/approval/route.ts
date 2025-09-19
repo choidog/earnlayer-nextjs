@@ -100,7 +100,6 @@ export async function POST(
           approvalDate: status === 'approved' ? new Date() : creatorRecord[0].approvalDate,
           rejectionReason: status === 'rejected' ? reason || null : null,
           lastApprovalCheck: new Date(),
-          updatedAt: new Date(),
         })
         .where(eq(creators.userId, userId))
         .returning();
