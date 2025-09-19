@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db/connection";
-import { creators, user } from "@/lib/db/schema";
+import { creators, users as usersTable } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { isAdminAuthenticated } from "../../../authenticate/route";
@@ -42,9 +42,9 @@ export async function POST(
 
     // Validate user exists
     const userExists = await db
-      .select({ id: user.id })
-      .from(user)
-      .where(eq(user.id, userId))
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId))
       .limit(1);
 
     if (userExists.length === 0) {
@@ -65,8 +65,8 @@ export async function POST(
       // Get user info to create creator profile
       const userInfo = await db
         .select()
-        .from(user)
-        .where(eq(user.id, userId))
+        .from(usersTable)
+        .where(eq(usersTable.id, userId))
         .limit(1);
 
       if (userInfo.length === 0) {
