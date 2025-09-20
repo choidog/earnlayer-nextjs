@@ -11,11 +11,60 @@ if (process.env.NODE_ENV !== "production") {
   config({ path: ".env.local" });
 }
 
-const connectionString = process.env.DATABASE_URL;
+let connectionString = process.env.DATABASE_URL;
 
 if (!connectionString) {
   console.error("❌ DATABASE_URL environment variable is not set");
   process.exit(1);
+}
+
+// Railway Private Networking: Try to use internal networking if we're on Railway
+function tryPrivateNetworking(publicUrl: string): string {
+  try {
+    const url = new URL(publicUrl);
+
+    // Check if this is a Railway proxy URL
+    if (url.hostname.includes('.proxy.rlwy.net')) {
+      console.log("🔍 Detected Railway proxy URL, attempting private networking...");
+
+      // Extract credentials and database name
+      const username = url.username;
+      const password = url.password;
+      const database = url.pathname.slice(1) || 'railway';
+
+      // Construct private networking URL
+      const privateUrl = `postgres://${username}:${password}@postgres.railway.internal:5432/${database}`;
+
+      console.log("🔧 Private URL constructed:");
+      console.log(`   Original: ${url.hostname}:${url.port}`);
+      console.log(`   Private:  postgres.railway.internal:5432`);
+
+      return privateUrl;
+    }
+
+    console.log("ℹ️ Not a Railway proxy URL, using original connection string");
+    return publicUrl;
+  } catch (error) {
+    console.error("⚠️ Error parsing URL for private networking, using original:", error);
+    return publicUrl;
+  }
+}
+
+// Try to use private networking
+const originalConnectionString = connectionString;
+connectionString = tryPrivateNetworking(connectionString);
+
+console.log("🌐 Database Connection Strategy:");
+console.log(`   Using: ${connectionString.includes('railway.internal') ? 'Private Networking' : 'Public Proxy'}`);
+console.log(`   DNS Delay: ${connectionString.includes('railway.internal') ? 'Required (3s)' : 'Not needed'}`);
+
+// Railway DNS workaround function
+async function applyRailwayDnsWorkaround() {
+  if (connectionString.includes('railway.internal')) {
+    console.log("⏳ Applying Railway private network DNS workaround (3 second delay)...");
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    console.log("✅ DNS workaround delay completed");
+  }
 }
 
 // Enhanced debugging function
@@ -243,6 +292,9 @@ async function main() {
 
   // Run comprehensive environment debugging
   await debugEnvironment();
+
+  // Apply Railway DNS workaround if using private networking
+  await applyRailwayDnsWorkaround();
 
   // Attempt migrations with retry logic
   console.log('\n🔄 === STARTING MIGRATION ATTEMPTS ===');
