@@ -34,8 +34,7 @@ const client = postgres(connectionString, {
   // Add retry logic for connection resets
   connection: {
     application_name: "earnlayer-typescript",
-    statement_timeout: 30000,
-    query_timeout: 30000
+    statement_timeout: 30000
   },
   // Handle connection errors gracefully
   onnotice: (notice) => console.log('🔔 DB Notice:', notice),
