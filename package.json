@@ -8,7 +8,7 @@
     "start": "next start -p ${PORT:-8000}",
     "lint": "next lint",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx scripts/migrate-with-retry.ts",
+    "db:migrate": "npx tsx scripts/migrate-with-retry.ts",
     "db:migrate-kit": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "db:push": "drizzle-kit push",
