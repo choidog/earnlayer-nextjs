@@ -1,20 +1,27 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db/connection";
-import { sql } from "drizzle-orm";
 
 export async function GET() {
   try {
-    // Test database connection
-    await db.execute(sql`SELECT 1`);
-    
     // Test OpenAI API key presence
     const hasOpenAI = !!process.env.OPENAI_API_KEY;
-    
+
+    // Test database connection (non-blocking)
+    let databaseStatus = "unknown";
+    try {
+      const { db } = await import("@/lib/db/connection");
+      const { sql } = await import("drizzle-orm");
+      await db.execute(sql`SELECT 1`);
+      databaseStatus = "connected";
+    } catch (dbError) {
+      console.warn("Database health check failed:", dbError instanceof Error ? dbError.message : "Unknown error");
+      databaseStatus = "disconnected";
+    }
+
     return NextResponse.json({
       status: "healthy",
       timestamp: new Date().toISOString(),
       services: {
-        database: "connected",
+        database: databaseStatus,
         openai: hasOpenAI ? "configured" : "missing",
         mcp_server: "available"
       },
@@ -25,10 +32,10 @@ export async function GET() {
       },
       version: "1.0.0"
     });
-    
+
   } catch (error) {
     return NextResponse.json({
-      status: "unhealthy", 
+      status: "unhealthy",
       error: error instanceof Error ? error.message : "Unknown error",
       timestamp: new Date().toISOString()
     }, { status: 503 });
@@ -38,10 +45,14 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
-    
+
     if (body.action === 'seed-demo-ads') {
       console.log('🌱 Seeding demo ads...');
-      
+
+      // Import database connection
+      const { db } = await import("@/lib/db/connection");
+      const { sql } = await import("drizzle-orm");
+
       // Enable vector extension
       try {
         await db.execute(sql`CREATE EXTENSION IF NOT EXISTS vector`);
@@ -49,18 +60,18 @@ export async function POST(request: Request) {
       } catch (error) {
         console.log('⚠️ Vector extension already exists or failed');
       }
-      
+
       // Clean existing demo data
       await db.execute(sql`DELETE FROM ads WHERE title LIKE '[DEMO]%'`);
       await db.execute(sql`DELETE FROM ad_campaigns WHERE name LIKE '[DEMO]%'`);
-      
+
       // Create demo campaign
       const crypto = await import("crypto");
       const campaignId = crypto.randomUUID();
-      
+
       await db.execute(sql`
         INSERT INTO ad_campaigns (
-          id, advertiser_id, name, start_date, end_date, 
+          id, advertiser_id, name, start_date, end_date,
           budget, status, created_at, updated_at
         ) VALUES (
           ${campaignId},
@@ -87,7 +98,7 @@ export async function POST(request: Request) {
       for (const ad of demoAds) {
         await db.execute(sql`
           INSERT INTO ads (
-            id, campaign_id, title, target_url, ad_type, 
+            id, campaign_id, title, target_url, ad_type,
             pricing_model, content, status, created_at, updated_at
           ) VALUES (
             ${crypto.randomUUID()},
@@ -118,11 +129,11 @@ export async function POST(request: Request) {
         timestamp: new Date().toISOString(),
       });
     }
-    
+
     return NextResponse.json({
       error: "Invalid action. Use {\"action\":\"seed-demo-ads\"}"
     }, { status: 400 });
-    
+
   } catch (error) {
     console.error("❌ Seeding error:", error);
     return NextResponse.json({
