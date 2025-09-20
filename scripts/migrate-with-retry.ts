@@ -121,30 +121,6 @@ async function runMigrationWithRetry(maxRetries = 3, delay = 5000) {
       },
       transform: {
         undefined: null
-      },
-      // Add connection event handlers
-      socket: (socket) => {
-        console.log(`🔌 Socket created [${Date.now() - startTime}ms]`);
-
-        socket.on('connect', () => {
-          console.log(`✅ Socket connected [${Date.now() - startTime}ms]`);
-        });
-
-        socket.on('ready', () => {
-          console.log(`🚀 Socket ready [${Date.now() - startTime}ms]`);
-        });
-
-        socket.on('error', (error) => {
-          console.error(`❌ Socket error [${Date.now() - startTime}ms]:`, error);
-        });
-
-        socket.on('timeout', () => {
-          console.error(`⏰ Socket timeout [${Date.now() - startTime}ms]`);
-        });
-
-        socket.on('close', () => {
-          console.log(`🔒 Socket closed [${Date.now() - startTime}ms]`);
-        });
       }
     });
 
