@@ -238,7 +238,7 @@ export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
 // Default ad relationships - supports both global and creator-specific defaults
 export const defaultAdRelationship = pgTable("default_ad_relationship", {
   id: uuid("id").defaultRandom().primaryKey(),
-  creatorId: uuid("creator_id"), // NULL for global defaults
+  creatorId: uuid("creator_id").references(() => creators.id), // NULL for global defaults
   adId: uuid("ad_id").notNull().references(() => ads.id, { onDelete: 'cascade' }),
   adType: text("ad_type").notNull(), // 'popup', 'thinking', 'banner', 'video'
   placement: text("placement").notNull(), // 'sidebar', 'modal', 'inline', 'overlay', 'header', 'footer', 'default'
@@ -250,8 +250,6 @@ export const defaultAdRelationship = pgTable("default_ad_relationship", {
   globalUnique: unique("default_ad_global_unique").on(table.adType, table.placement, table.isGlobalDefault),
   // Creator-specific constraint: one default per creator per ad_type/placement
   creatorUnique: unique("default_ad_relationship_creator_id_ad_type_placement_key").on(table.creatorId, table.adType, table.placement),
-  // Foreign key to creators (optional for global defaults)
-  creatorFk: table.creatorId ? [table.creatorId] : undefined,
 }));
 
 export const defaultAdRelationshipRelations = relations(defaultAdRelationship, ({ one }) => ({
@@ -356,6 +354,24 @@ export const agreementBannerDismissals = pgTable("agreement_banner_dismissals", 
   userAgent: text("user_agent"),
 });
 
+// API Logs Table
+export const apiLogs = pgTable("api_logs", {
+  id: serial("id").primaryKey(),
+  timestamp: timestamp("timestamp", { withTimezone: true }).defaultNow().notNull(),
+  level: varchar("level", { length: 20 }).notNull(),
+  endpoint: varchar("endpoint", { length: 500 }).notNull(),
+  method: varchar("method", { length: 10 }),
+  message: text("message").notNull(),
+  details: jsonb("details"),
+  requestId: varchar("request_id", { length: 100 }),
+  statusCode: integer("status_code"),
+  duration: integer("duration"),
+  userId: varchar("user_id", { length: 100 }),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 // Frontend Auth Relations
 export const usersRelations = relations(users, ({ many }) => ({
   creators: many(creators), // Link to creator profiles
@@ -402,3 +418,5 @@ export type UserAgreement = typeof userAgreements.$inferSelect;
 export type NewUserAgreement = typeof userAgreements.$inferInsert;
 export type AgreementBannerDismissal = typeof agreementBannerDismissals.$inferSelect;
 export type NewAgreementBannerDismissal = typeof agreementBannerDismissals.$inferInsert;
+export type ApiLog = typeof apiLogs.$inferSelect;
+export type NewApiLog = typeof apiLogs.$inferInsert;

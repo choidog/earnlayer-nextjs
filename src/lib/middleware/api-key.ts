@@ -21,7 +21,9 @@ export interface ApiKeyValidation {
     rateLimitTimeWindow: number;
     requestCount: number;
     remaining: number | null;
-    permissions: string | null;
+    permissions: any;
+    metadata: any;
+    rateLimit: any;
   };
   error?: string;
   remainingRequests?: number;
@@ -233,7 +235,9 @@ export async function validateApiKey(request: NextRequest): Promise<ApiKeyValida
           rateLimitTimeWindow: timeWindow,
           requestCount: currentCount + 1,
           remaining: maxRequests - (currentCount + 1),
-          permissions: apiKeyData.permissions as string,
+          permissions: apiKeyData.permissions,
+          metadata: apiKeyData.metadata,
+          rateLimit: apiKeyData.rateLimit,
         },
         remainingRequests: maxRequests - (currentCount + 1)
       };
@@ -273,7 +277,9 @@ export async function validateApiKey(request: NextRequest): Promise<ApiKeyValida
         rateLimitTimeWindow: 0,
         requestCount: (metadata.requestCount || 0) + 1,
         remaining: null,
-        permissions: apiKeyData.permissions as string,
+        permissions: apiKeyData.permissions,
+        metadata: apiKeyData.metadata,
+        rateLimit: apiKeyData.rateLimit,
       }
     };
 
