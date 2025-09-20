@@ -18,54 +18,10 @@ if (!connectionString) {
   process.exit(1);
 }
 
-// Railway Private Networking: Try to use internal networking if we're on Railway
-function tryPrivateNetworking(publicUrl: string): string {
-  try {
-    const url = new URL(publicUrl);
-
-    // Check if this is a Railway proxy URL
-    if (url.hostname.includes('.proxy.rlwy.net')) {
-      console.log("🔍 Detected Railway proxy URL, attempting private networking...");
-
-      // Extract credentials and database name
-      const username = url.username;
-      const password = url.password;
-      const database = url.pathname.slice(1) || 'railway';
-
-      // Construct private networking URL
-      const privateUrl = `postgres://${username}:${password}@postgres.railway.internal:5432/${database}`;
-
-      console.log("🔧 Private URL constructed:");
-      console.log(`   Original: ${url.hostname}:${url.port}`);
-      console.log(`   Private:  postgres.railway.internal:5432`);
-
-      return privateUrl;
-    }
-
-    console.log("ℹ️ Not a Railway proxy URL, using original connection string");
-    return publicUrl;
-  } catch (error) {
-    console.error("⚠️ Error parsing URL for private networking, using original:", error);
-    return publicUrl;
-  }
-}
-
-// Try to use private networking
-const originalConnectionString = connectionString;
-connectionString = tryPrivateNetworking(connectionString);
-
 console.log("🌐 Database Connection Strategy:");
-console.log(`   Using: ${connectionString.includes('railway.internal') ? 'Private Networking' : 'Public Proxy'}`);
-console.log(`   DNS Delay: ${connectionString.includes('railway.internal') ? 'Required (3s)' : 'Not needed'}`);
-
-// Railway DNS workaround function
-async function applyRailwayDnsWorkaround() {
-  if (connectionString.includes('railway.internal')) {
-    console.log("⏳ Applying Railway private network DNS workaround (3 second delay)...");
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    console.log("✅ DNS workaround delay completed");
-  }
-}
+console.log(`   Using: Public Proxy (Private networking not available)`);
+console.log(`   Proxy: ${new URL(connectionString).hostname}`);
+console.log(`   Enhanced timeouts and retry logic applied`);
 
 // Enhanced debugging function
 async function debugEnvironment() {
@@ -137,7 +93,7 @@ async function debugEnvironment() {
   console.log(`📅 Current time: ${new Date().toISOString()}`);
 }
 
-async function runMigrationWithRetry(maxRetries = 3, delay = 5000) {
+async function runMigrationWithRetry(maxRetries = 5, delay = 10000) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     console.log(`\n🔧 === MIGRATION ATTEMPT ${attempt}/${maxRetries} ===`);
     console.log(`⏰ Attempt started at: ${new Date().toISOString()}`);
@@ -149,12 +105,16 @@ async function runMigrationWithRetry(maxRetries = 3, delay = 5000) {
     const client = postgres(connectionString, {
       prepare: false,
       max: 1, // Single connection for migration
-      idle_timeout: 60,
-      connect_timeout: 30,
+      idle_timeout: 120, // Increased from 60
+      connect_timeout: 60, // Increased from 30
+      socket_timeout: 120, // Added socket timeout
       connection: {
-        application_name: "earnlayer-migration-debug",
-        statement_timeout: 60000,
-        query_timeout: 60000
+        application_name: "earnlayer-migration-enhanced",
+        statement_timeout: 120000, // Increased from 60000
+        query_timeout: 120000, // Increased from 60000
+        tcp_keepalives_idle: 30,
+        tcp_keepalives_interval: 10,
+        tcp_keepalives_count: 3
       },
       onnotice: (notice) => {
         console.log(`🔔 DB Notice [${Date.now() - startTime}ms]:`, notice.message);
@@ -170,6 +130,16 @@ async function runMigrationWithRetry(maxRetries = 3, delay = 5000) {
       },
       transform: {
         undefined: null
+      },
+      // Railway proxy optimizations
+      ssl: false, // Railway proxy handles SSL
+      types: {
+        bigint: {
+          to: 20,
+          from: [20],
+          parse: (x) => parseInt(x),
+          serialize: (x) => x.toString(),
+        },
       }
     });
 
@@ -292,9 +262,6 @@ async function main() {
 
   // Run comprehensive environment debugging
   await debugEnvironment();
-
-  // Apply Railway DNS workaround if using private networking
-  await applyRailwayDnsWorkaround();
 
   // Attempt migrations with retry logic
   console.log('\n🔄 === STARTING MIGRATION ATTEMPTS ===');
