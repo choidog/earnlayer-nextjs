@@ -1,28 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import crypto from "crypto";
-import { db } from "@/lib/db/connection";
-import { adminSessions } from "@/lib/db/schema";
-import { eq, lt } from "drizzle-orm";
+import jwt from "jsonwebtoken";
 
 const authSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
-// Clean expired sessions periodically
-const cleanupExpiredSessions = async () => {
-  try {
-    await db.delete(adminSessions).where(lt(adminSessions.expiresAt, new Date()));
-  } catch (error) {
-    console.error('Failed to cleanup expired sessions:', error);
-  }
-};
+// Use JWT for session management when database is unavailable
+const JWT_SECRET = process.env.BETTER_AUTH_SECRET || "fallback-secret-for-admin";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { password } = authSchema.parse(body);
-    
+
     // Check password against environment variable
     const adminPassword = process.env.ADMIN_PASSWORD;
     if (!adminPassword) {
@@ -42,31 +34,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate session ID
-    const sessionId = crypto.randomBytes(32).toString('hex');
+    // Generate JWT token instead of database session
     const expiresAt = new Date(Date.now() + (3600000)); // 1 hour
     const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown';
 
-    // Clean up expired sessions first
-    await cleanupExpiredSessions();
-
-    // Store session in database
-    await db.insert(adminSessions).values({
-      sessionId,
-      expiresAt,
-      ipAddress
-    });
+    const token = jwt.sign({
+      admin: true,
+      ip: ipAddress,
+      exp: Math.floor(expiresAt.getTime() / 1000)
+    }, JWT_SECRET);
 
     // Log successful login
-    console.log(`Successful admin login from IP: ${request.headers.get('x-forwarded-for') || 'unknown'}`);
+    console.log(`Successful admin login from IP: ${ipAddress}`);
 
-    // Set secure cookie
-    const response = NextResponse.json({ 
+    // Set secure cookie with JWT token
+    const response = NextResponse.json({
       success: true,
       expiresAt: expiresAt.toISOString()
     });
-    
-    response.cookies.set('admin-session', sessionId, {
+
+    response.cookies.set('admin-session', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
@@ -75,7 +62,7 @@ export async function POST(request: NextRequest) {
     });
 
     return response;
-    
+
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
@@ -93,84 +80,60 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  const sessionId = request.cookies.get('admin-session')?.value;
-  
-  if (!sessionId) {
+  const token = request.cookies.get('admin-session')?.value;
+
+  if (!token) {
     return NextResponse.json({ authenticated: false });
   }
 
   try {
-    const session = await db.select().from(adminSessions)
-      .where(eq(adminSessions.sessionId, sessionId))
-      .limit(1);
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
 
-    if (session.length === 0 || session[0].expiresAt < new Date()) {
-      // Clean up expired session
-      if (session.length > 0) {
-        await db.delete(adminSessions).where(eq(adminSessions.sessionId, sessionId));
-      }
+    if (!decoded.admin || decoded.exp < Math.floor(Date.now() / 1000)) {
       return NextResponse.json({ authenticated: false });
     }
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       authenticated: true,
-      expiresAt: session[0].expiresAt.toISOString()
+      expiresAt: new Date(decoded.exp * 1000).toISOString()
     });
   } catch (error) {
-    console.error('Error checking admin session:', error);
+    console.error('Error verifying admin token:', error);
     return NextResponse.json({ authenticated: false });
   }
 }
 
 export async function DELETE(request: NextRequest) {
-  const sessionId = request.cookies.get('admin-session')?.value;
-  
-  if (sessionId) {
-    try {
-      await db.delete(adminSessions).where(eq(adminSessions.sessionId, sessionId));
-    } catch (error) {
-      console.error('Error deleting admin session:', error);
-    }
-  }
-
   const response = NextResponse.json({ success: true });
   response.cookies.delete('admin-session');
-  
+
   return response;
 }
 
 // Helper function to check admin authentication (exported for use in other endpoints)
 export async function isAdminAuthenticated(request: NextRequest): Promise<boolean> {
-  const sessionId = request.cookies.get('admin-session')?.value;
-  
+  const token = request.cookies.get('admin-session')?.value;
+
   console.log('Admin auth check:', {
-    sessionId: sessionId ? 'present' : 'missing',
+    token: token ? 'present' : 'missing',
     path: request.nextUrl.pathname
   });
-  
-  if (!sessionId) {
-    console.log('No session ID found in cookies');
+
+  if (!token) {
+    console.log('No token found in cookies');
     return false;
   }
 
   try {
-    const session = await db.select().from(adminSessions)
-      .where(eq(adminSessions.sessionId, sessionId))
-      .limit(1);
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    const isValid = decoded.admin && decoded.exp > Math.floor(Date.now() / 1000);
 
-    const isValid = session.length > 0 && session[0].expiresAt > new Date();
-    
-    console.log('Session validation:', {
-      sessionExists: session.length > 0,
-      isExpired: session.length > 0 ? session[0].expiresAt < new Date() : 'no-session',
+    console.log('Token validation:', {
+      hasAdminFlag: !!decoded.admin,
+      isExpired: decoded.exp <= Math.floor(Date.now() / 1000),
       isValid
     });
 
-    // Clean up expired session
-    if (session.length > 0 && !isValid) {
-      await db.delete(adminSessions).where(eq(adminSessions.sessionId, sessionId));
-    }
-    
     return isValid;
   } catch (error) {
     console.error('Error checking admin authentication:', error);
