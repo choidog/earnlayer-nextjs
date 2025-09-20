@@ -111,7 +111,6 @@ async function runMigrationWithRetry(maxRetries = 5, delay = 10000) {
       connection: {
         application_name: "earnlayer-migration-enhanced",
         statement_timeout: 120000, // Increased from 60000
-        query_timeout: 120000, // Increased from 60000
         tcp_keepalives_idle: 30,
         tcp_keepalives_interval: 10,
         tcp_keepalives_count: 3
