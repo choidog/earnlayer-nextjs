@@ -28,13 +28,17 @@ console.log("🔧 Creating postgres client...");
 const client = postgres(connectionString, {
   prepare: false,
   max: 10, // Increased pool size for better connection handling
-  idle_timeout: 20,
+  idle_timeout: 120, // Increased for Railway proxy
   max_lifetime: 60 * 30, // 30 minutes
-  connect_timeout: 10,
+  connect_timeout: 60, // Increased to match working migration script
+  socket_timeout: 120, // Add socket timeout like migration script
   // Add retry logic for connection resets
   connection: {
     application_name: "earnlayer-typescript",
-    statement_timeout: 30000
+    statement_timeout: 120000, // Increased to match working migration script
+    tcp_keepalives_idle: 30,
+    tcp_keepalives_interval: 10,
+    tcp_keepalives_count: 3
   },
   // Handle connection errors gracefully
   onnotice: (notice) => console.log('🔔 DB Notice:', notice),
