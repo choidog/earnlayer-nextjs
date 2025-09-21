@@ -3,7 +3,7 @@ import postgres from "postgres";
 import * as schema from "./schema";
 import { config } from "dotenv";
 
-console.log("🔧 DB Connection - Starting...");
+console.log("🔧 DB Connection - Starting..."); // Force rebuild to clear cache
 console.log("🔧 NODE_ENV:", process.env.NODE_ENV);
 
 // Load environment variables only in development
