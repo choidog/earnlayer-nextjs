@@ -1,0 +1,240 @@
+-- export_full_schema_logic.psql
+-- Cross-platform: no shell mkdir, no pg_dump block
+-- Exports constraints, triggers, trigger functions, views, materialized views,
+-- row-level security policies, sequences, and non-constraint indexes into :outdir/
+
+\pset pager off
+\t
+\a
+\pset format unaligned
+
+-- Params
+\if :{?schema}
+\else
+  \set schema 'public'
+\endif
+
+\if :{?outdir}
+\else
+  \echo 'ERROR: You must provide -v outdir=dev (or prod, etc.)'
+  \quit 1
+\endif
+
+------------------------------------------------------------
+-- 1) Constraints
+------------------------------------------------------------
+\o :outdir/constraints.sql
+\qecho -- Constraint DDL for schema :schema
+SELECT
+  'ALTER TABLE '
+  || quote_ident(n.nspname) || '.' || quote_ident(c.relname)
+  || ' ADD CONSTRAINT ' || quote_ident(co.conname) || ' '
+  || pg_get_constraintdef(co.oid, true) || ';'
+FROM pg_constraint co
+JOIN pg_class c ON c.oid = co.conrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = :'schema'
+  AND c.relkind IN ('r','p')
+ORDER BY n.nspname, c.relname, co.conname;
+\o
+
+------------------------------------------------------------
+-- 2) Triggers
+------------------------------------------------------------
+\o :outdir/triggers.sql
+\qecho -- Trigger DDL for schema :schema
+SELECT pg_get_triggerdef(t.oid, true) || ';'
+FROM pg_trigger t
+JOIN pg_class c ON c.oid = t.tgrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = :'schema'
+  AND NOT t.tgisinternal
+ORDER BY n.nspname, c.relname, t.tgname;
+\o
+
+------------------------------------------------------------
+-- 3) Trigger functions
+------------------------------------------------------------
+\o :outdir/trigger_functions.sql
+\qecho -- Trigger function definitions for schema :schema
+WITH trig_funcs AS (
+  SELECT DISTINCT t.tgfoid AS procoid
+  FROM pg_trigger t
+  JOIN pg_class c ON c.oid = t.tgrelid
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = :'schema'
+    AND NOT t.tgisinternal
+)
+SELECT pg_get_functiondef(p.oid) || E'\n'
+FROM trig_funcs tf
+JOIN pg_proc p ON p.oid = tf.procoid
+ORDER BY pg_get_functiondef(p.oid);
+\o
+
+------------------------------------------------------------
+-- 4) Views
+------------------------------------------------------------
+\o :outdir/views.sql
+\qecho -- Views for schema :schema
+SELECT
+  'CREATE OR REPLACE VIEW '
+  || quote_ident(n.nspname) || '.' || quote_ident(c.relname) || E' AS\n'
+  || pg_get_viewdef(c.oid, true) || ';'
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = :'schema'
+  AND c.relkind = 'v'
+ORDER BY n.nspname, c.relname;
+\o
+
+------------------------------------------------------------
+-- 5) Materialized views
+------------------------------------------------------------
+\o :outdir/matviews.sql
+\qecho -- Materialized views for schema :schema
+SELECT
+  'CREATE MATERIALIZED VIEW '
+  || quote_ident(n.nspname) || '.' || quote_ident(c.relname) || E' AS\n'
+  || pg_get_viewdef(c.oid, true) || E'\nWITH NO DATA;'
+  || E'\n-- After creation, refresh data as needed: REFRESH MATERIALIZED VIEW '
+  || quote_ident(n.nspname) || '.' || quote_ident(c.relname) || ' WITH DATA;'
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = :'schema'
+  AND c.relkind = 'm'
+ORDER BY n.nspname, c.relname;
+\o
+
+------------------------------------------------------------
+-- 6) Row-level security (RLS) flags and policies
+------------------------------------------------------------
+\o :outdir/rls_policies.sql
+\qecho -- RLS table flags for schema :schema
+SELECT
+  'ALTER TABLE ' || quote_ident(n.nspname) || '.' || quote_ident(c.relname)
+  || CASE WHEN c.relrowsecurity THEN ' ENABLE ROW LEVEL SECURITY;' ELSE ' DISABLE ROW LEVEL SECURITY;' END
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = :'schema'
+  AND c.relkind IN ('r','p')
+ORDER BY n.nspname, c.relname;
+
+\qecho -- FORCE RLS where set
+SELECT
+  CASE WHEN c.relforcerowsecurity THEN
+    'ALTER TABLE ' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) || ' FORCE ROW LEVEL SECURITY;'
+  END
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = :'schema'
+  AND c.relkind IN ('r','p')
+  AND c.relforcerowsecurity
+ORDER BY n.nspname, c.relname;
+
+\qecho -- RLS policy definitions
+WITH roles_fmt AS (
+  SELECT
+    pol.oid AS pol_oid,
+    CASE
+      WHEN pol.polroles IS NULL OR array_length(pol.polroles, 1) IS NULL THEN 'PUBLIC'
+      ELSE (
+        SELECT string_agg(quote_ident(r.rolname), ', ' ORDER BY r.rolname)
+        FROM unnest(pol.polroles) AS rid
+        JOIN pg_roles r ON r.oid = rid
+      )
+    END AS role_list
+  FROM pg_policy pol
+)
+SELECT
+  'CREATE POLICY ' || quote_ident(pol.polname) ||
+  ' ON ' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) ||
+  COALESCE(' FOR ' ||
+    CASE pol.polcmd
+      WHEN 'r' THEN 'SELECT'
+      WHEN 'a' THEN 'INSERT'
+      WHEN 'w' THEN 'UPDATE'
+      WHEN 'd' THEN 'DELETE'
+    END, '') ||
+  ' TO ' || rf.role_list ||
+  COALESCE(' USING (' || pg_get_expr(pol.polqual, pol.polrelid, true) || ')', '') ||
+  COALESCE(' WITH CHECK (' || pg_get_expr(pol.polwithcheck, pol.polrelid, true) || ')', '') ||
+  ';'
+FROM pg_policy pol
+JOIN pg_class c ON c.oid = pol.polrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+JOIN roles_fmt rf ON rf.pol_oid = pol.oid
+WHERE n.nspname = :'schema'
+ORDER BY n.nspname, c.relname, pol.polname;
+\o
+
+------------------------------------------------------------
+-- 7) Sequences with OWNED BY info
+------------------------------------------------------------
+\o :outdir/sequences.sql
+\qecho -- Sequences for schema :schema
+WITH seqs AS (
+  SELECT
+    s.seqrelid AS seq_oid,
+    ns.nspname AS schemaname,
+    cls.relname AS sequencename,
+    t.typname::text AS data_type,
+    s.seqstart AS start_value,
+    s.seqmin AS min_value,
+    s.seqmax AS max_value,
+    s.seqincrement AS increment_by,
+    s.seqcycle AS cycle,
+    s.seqcache AS cache_size
+  FROM pg_sequence s
+  JOIN pg_class cls ON cls.oid = s.seqrelid
+  JOIN pg_namespace ns ON ns.oid = cls.relnamespace
+  JOIN pg_type t ON t.oid = s.seqtypid
+  WHERE ns.nspname = :'schema'
+),
+owned AS (
+  SELECT
+    d.objid AS seq_oid,
+    n.nspname AS table_schema,
+    c.relname AS table_name,
+    a.attname AS column_name
+  FROM pg_depend d
+  JOIN pg_class c ON c.oid = d.refobjid
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = d.refobjsubid
+  WHERE d.classid = 'pg_class'::regclass
+    AND d.refclassid = 'pg_class'::regclass
+    AND d.deptype = 'a'
+)
+SELECT
+  'CREATE SEQUENCE ' || quote_ident(seqs.schemaname) || '.' || quote_ident(seqs.sequencename) ||
+  ' AS ' || seqs.data_type ||
+  ' INCREMENT BY ' || seqs.increment_by ||
+  ' MINVALUE ' || seqs.min_value ||
+  ' MAXVALUE ' || seqs.max_value ||
+  ' START WITH ' || seqs.start_value ||
+  ' CACHE ' || seqs.cache_size ||
+  CASE WHEN seqs.cycle THEN ' CYCLE' ELSE ' NO CYCLE' END || ';' ||
+  E'\n' ||
+  'ALTER SEQUENCE ' || quote_ident(seqs.schemaname) || '.' || quote_ident(seqs.sequencename) ||
+  COALESCE(' OWNED BY ' || quote_ident(owned.table_schema) || '.' || quote_ident(owned.table_name) || '.' || quote_ident(owned.column_name),
+           ' OWNED BY NONE') || ';'
+FROM seqs
+LEFT JOIN owned ON owned.seq_oid = seqs.seq_oid
+ORDER BY seqs.schemaname, seqs.sequencename;
+\o
+
+------------------------------------------------------------
+-- 8) Non-constraint indexes
+------------------------------------------------------------
+\o :outdir/indexes.sql
+\qecho -- Non-constraint index DDL for schema :schema
+SELECT pg_get_indexdef(i.indexrelid, 0, true) || ';'
+FROM pg_index i
+JOIN pg_class ic ON ic.oid = i.indexrelid
+JOIN pg_class tc ON tc.oid = i.indrelid
+JOIN pg_namespace n ON n.oid = tc.relnamespace
+LEFT JOIN pg_constraint con ON con.conindid = i.indexrelid
+WHERE n.nspname = :'schema'
+  AND con.oid IS NULL
+  AND NOT i.indisprimary
+ORDER BY n.nspname, tc.relname, ic.relname;
+\o

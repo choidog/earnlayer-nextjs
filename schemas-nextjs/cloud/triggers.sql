@@ -1,0 +1,1 @@
+-- Trigger DDL for schema public

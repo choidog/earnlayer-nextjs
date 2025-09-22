@@ -1,0 +1,1 @@
+-- Trigger function definitions for schema public
