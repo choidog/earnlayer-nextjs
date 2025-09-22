@@ -23,50 +23,6 @@ END;
 $function$
 
 
-CREATE OR REPLACE FUNCTION public.sync_ad_embedding_to_table()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-DECLARE
-    embedding_array float[];
-BEGIN
-    -- Only process if embedding changed and is not null
-    IF NEW.embedding IS DISTINCT FROM OLD.embedding AND NEW.embedding IS NOT NULL THEN
-        -- Try to parse the text as an array
-        BEGIN
-            -- Handle different text formats
-            IF NEW.embedding LIKE '[%]' THEN
-                -- JSON array format: [0.1, 0.2, ...]
-                embedding_array := ARRAY(
-                    SELECT unnest(string_to_array(
-                        regexp_replace(NEW.embedding, '[\[\]]', '', 'g'), 
-                        ','
-                    )::float[])
-                );
-            ELSIF NEW.embedding LIKE '{%}' THEN
-                -- PostgreSQL array format: {0.1,0.2,...}
-                embedding_array := NEW.embedding::float[];
-            END IF;
-            
-            -- Insert or update in embeddings table
-            INSERT INTO public.embeddings (source_table, source_id, embedding, chunk_id)
-            VALUES ('ads', NEW.id, embedding_array::vector, 0)
-            ON CONFLICT (source_table, source_id, chunk_id) 
-            DO UPDATE SET 
-                embedding = EXCLUDED.embedding,
-                created_at = now();
-                
-        EXCEPTION WHEN OTHERS THEN
-            -- Log error but don't fail the transaction
-            RAISE WARNING 'Could not parse embedding for ad %: %', NEW.id, SQLERRM;
-        END;
-    END IF;
-    
-    RETURN NEW;
-END;
-$function$
-
-
 CREATE OR REPLACE FUNCTION public.sync_campaign_spent_and_status()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -104,28 +60,6 @@ AS $function$
 BEGIN
     PERFORM public.refresh_effective_cpc_rates();
     RETURN COALESCE(NEW, OLD);
-END;
-$function$
-
-
-CREATE OR REPLACE FUNCTION public.trigger_set_updated_at()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-    NEW.updated_at = now();
-    RETURN NEW;
-END;
-$function$
-
-
-CREATE OR REPLACE FUNCTION public.update_api_keys_updated_at()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-    NEW.updated_at = CURRENT_TIMESTAMP;
-    RETURN NEW;
 END;
 $function$
 

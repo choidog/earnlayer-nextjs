@@ -40,6 +40,12 @@ Execute these migrations in sequence:
    - Creates helpful views
    - Adds indexes for performance
 
+9. **009_handle_embeddings.sql**
+   - Preserves existing vector embeddings in embeddings table
+   - Creates compatibility layer for new code
+   - Ensures vector search continues to work
+   - Adds sync mechanism for new embeddings
+
 ## Pre-Migration Checklist
 
 1. **Backup your database** before running migrations

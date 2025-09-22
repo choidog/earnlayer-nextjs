@@ -63,21 +63,22 @@ END $$;
 -- Create views for backwards compatibility
 CREATE OR REPLACE VIEW public.v_users_with_creators AS
 SELECT 
-    u.id as user_id,
-    u.email,
-    u.name as user_name,
-    u.picture,
-    u.email_verified,
-    u.provider,
+    au.id as user_id,
+    au.email,
+    au.name as user_name,
+    au.picture,
+    au.email_verified,
+    au.provider,
     c.id as creator_id,
     c.name as creator_name,
     c.bio,
     c.is_active,
     c.approval_status,
     c.approval_date,
-    c.permissions
-FROM public.users u
-LEFT JOIN public.creators c ON c.user_id = u.id;
+    c.permissions,
+    c.user_id as legacy_user_id
+FROM public.auth_users au
+LEFT JOIN public.creators c ON c.auth_user_id = au.id;
 
 -- Create view for active campaigns with ads
 CREATE OR REPLACE VIEW public.v_active_campaigns_ads AS
@@ -125,24 +126,39 @@ DO $$
 DECLARE
     t text;
 BEGIN
+    -- Handle tables without generated columns
     FOR t IN 
         SELECT unnest(ARRAY[
-            'ad_campaigns', 'ads', 'creators', 'business_settings',
+            'ads', 'creators', 'business_settings',
             'ad_categories', 'advertisers', 'content'
         ])
     LOOP
-        EXECUTE format('
-            CREATE TRIGGER set_updated_at_%s
-            BEFORE UPDATE ON public.%s
-            FOR EACH ROW
-            WHEN (OLD.* IS DISTINCT FROM NEW.*)
-            EXECUTE FUNCTION trigger_set_updated_at()',
-            t, t
-        );
+        BEGIN
+            EXECUTE format('
+                CREATE TRIGGER set_updated_at_%s
+                BEFORE UPDATE ON public.%s
+                FOR EACH ROW
+                WHEN (OLD.* IS DISTINCT FROM NEW.*)
+                EXECUTE FUNCTION trigger_set_updated_at()',
+                t, t
+            );
+        EXCEPTION
+            WHEN duplicate_object THEN
+                NULL; -- Ignore if trigger already exists
+        END;
     END LOOP;
-EXCEPTION
-    WHEN duplicate_object THEN
-        NULL; -- Ignore if trigger already exists
+    
+    -- Handle ad_campaigns separately (has generated column)
+    BEGIN
+        CREATE TRIGGER set_updated_at_ad_campaigns
+        BEFORE UPDATE ON public.ad_campaigns
+        FOR EACH ROW
+        -- Don't use WHEN clause for tables with generated columns
+        EXECUTE FUNCTION trigger_set_updated_at();
+    EXCEPTION
+        WHEN duplicate_object THEN
+            NULL; -- Ignore if trigger already exists
+    END;
 END $$;
 
 -- Final statistics and validation
@@ -154,8 +170,10 @@ BEGIN
     
     FOR rec IN 
         SELECT 
-            'users' as table_name, COUNT(*) as row_count 
-        FROM public.users
+            'auth_users' as table_name, COUNT(*) as row_count 
+        FROM public.auth_users
+        UNION ALL
+        SELECT 'users (legacy)', COUNT(*) FROM public.users
         UNION ALL
         SELECT 'creators', COUNT(*) FROM public.creators
         UNION ALL

@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS public.api_keys (
     id text PRIMARY KEY,
     name text NOT NULL,
     key text NOT NULL UNIQUE,
-    user_id text NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    user_id text NOT NULL REFERENCES public.auth_users(id) ON DELETE CASCADE,
     permissions jsonb DEFAULT '{}' NOT NULL,
     metadata jsonb DEFAULT '{}' NOT NULL,
     rate_limit jsonb DEFAULT '{}' NOT NULL,

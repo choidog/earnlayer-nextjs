@@ -255,18 +255,18 @@ Add the following fields:
 - `last_approval_check timestamp with time zone DEFAULT now()` - Last check time
 
 ### 2. `ads` table modifications
-Change/Add the following:
-- Rename `url` to `target_url` (or add as alias)
-- Rename `description` to `content` (or add as alias)
+Add the following fields (keep existing fields intact):
+- Add `target_url varchar(255)` - Copy data from existing `url` field
+- Add `content text` - Copy data from existing `description` field
 - Add `placement ad_placement DEFAULT 'default'` enum field
 - Add `bid_amount numeric(14,6)` - For bidding system
-- Change `embedding` from `vector(1536)` to `text` type (for compatibility)
+- Add `embedding text` - For compatibility only (actual vectors stay in embeddings table)
 
 ### 3. `chat_messages` table modifications
 Change/Add:
-- Rename `message` to `content`
-- Rename `is_user` to `role varchar(20)` with values: 'user', 'assistant', 'system'
-- Change `embedding` from `vector(1536)` to `text` type
+- Add `content` field and copy data from `message` 
+- Add `role varchar(20)` field with values: 'user', 'assistant', 'system' (convert from `is_user` boolean)
+- Keep embeddings in the separate embeddings table - DO NOT modify
 
 ### 4. `ad_impressions` table modifications
 Add the following fields:
@@ -296,9 +296,10 @@ The new schema uses the same enums but the old schema has additional safety feat
 - Old: UUID-based user IDs throughout
 - New: Text-based user IDs (from OAuth providers)
 
-### 4. Vector Storage
-- Old: Uses native `vector(1536)` type
-- New: Stores embeddings as text (likely base64 encoded)
+### 4. Vector Storage (CRITICAL)
+- Old: Uses separate `embeddings` table with native `vector(1536)` type and ivfflat indexes
+- New: Tries to store embeddings as text in ads table
+- **Migration approach**: Keep embeddings table intact, add compatibility layer
 
 ### 5. Session Management
 - Old: Only chat_sessions
@@ -328,6 +329,6 @@ The new schema uses the same enums but the old schema has additional safety feat
 1. **User Migration**: Need to map old UUID users to new text-based auth users
 2. **Creator Linkage**: Link existing creators to new user accounts
 3. **API Key Migration**: Migrate any existing API keys to new structure
-4. **Embedding Format**: Convert vector embeddings to text format
+4. **Vector Embeddings**: KEEP embeddings table with native vector type - critical for search
 5. **Data Integrity**: Ensure all foreign keys are properly linked
-6. **Backwards Compatibility**: Some tables may need to support both old and new patterns during transition
+6. **Backwards Compatibility**: Use views and dual columns for smooth transition

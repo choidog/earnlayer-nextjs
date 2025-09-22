@@ -8,9 +8,9 @@ CREATE TEMPORARY TABLE user_migration_map (
     email varchar(255)
 );
 
--- Populate Frontend Auth users from existing users table
--- This assumes the old users table has UUID IDs and we need text IDs
-INSERT INTO public.users (id, email, name, email_verified, created_at, updated_at)
+-- Populate auth_users from existing users table
+-- Keep the original users table intact
+INSERT INTO public.auth_users (id, email, name, email_verified, created_at, updated_at)
 SELECT 
     'legacy_' || u.id::text as id,  -- Prefix legacy users
     u.email,
@@ -21,8 +21,8 @@ SELECT
 FROM public.users u
 LEFT JOIN public.creators c ON c.user_id = u.id
 WHERE NOT EXISTS (
-    SELECT 1 FROM public.users new_u 
-    WHERE new_u.email = u.email
+    SELECT 1 FROM public.auth_users au 
+    WHERE au.email = u.email
 )
 ON CONFLICT (email) DO NOTHING;
 
@@ -34,13 +34,14 @@ SELECT
     u.email
 FROM public.users u;
 
--- Update creators table to link to new users
+-- Update creators table to link to new auth users
+-- Keep the original user_id intact, add auth_user_id
 UPDATE public.creators c
 SET 
-    user_id = m.new_user_id,
+    auth_user_id = m.new_user_id,
     email = COALESCE(c.email, m.email)
 FROM user_migration_map m
-WHERE c.user_id::uuid = m.old_user_id
+WHERE c.user_id = m.old_user_id
 AND c.user_id IS NOT NULL;
 
 -- Migrate API keys if they exist in creators or elsewhere
@@ -57,12 +58,12 @@ BEGIN
             gen_random_uuid()::text,
             'Legacy API Key' as name,
             c.api_key as key,
-            c.user_id,
+            c.auth_user_id, -- Use the new auth_user_id
             c.created_at,
             c.created_at as updated_at
         FROM public.creators c
         WHERE c.api_key IS NOT NULL 
-        AND c.user_id IS NOT NULL
+        AND c.auth_user_id IS NOT NULL
         AND NOT EXISTS (
             SELECT 1 FROM public.api_keys ak 
             WHERE ak.key = c.api_key
@@ -93,16 +94,32 @@ SET
 WHERE placement IS NULL OR content IS NULL OR target_url IS NULL;
 
 -- Update chat messages role field
-UPDATE public.chat_messages
-SET role = 'user'
-WHERE role IS NULL AND is_user = true;
+DO $$
+BEGIN
+    -- Check if is_user column exists
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'chat_messages' 
+        AND column_name = 'is_user'
+    ) THEN
+        -- Convert is_user to role
+        UPDATE public.chat_messages
+        SET role = 'user'
+        WHERE role IS NULL AND is_user = true;
 
-UPDATE public.chat_messages
-SET role = 'assistant' 
-WHERE role IS NULL AND (is_user = false OR is_user IS NULL);
+        UPDATE public.chat_messages
+        SET role = 'assistant' 
+        WHERE role IS NULL AND (is_user = false OR is_user IS NULL);
+    ELSE
+        -- If is_user doesn't exist, ensure role has default values
+        UPDATE public.chat_messages
+        SET role = 'assistant'
+        WHERE role IS NULL;
+    END IF;
+END $$;
 
 -- Create default admin user if needed
-INSERT INTO public.users (id, email, name, email_verified, provider, created_at, updated_at)
+INSERT INTO public.auth_users (id, email, name, email_verified, provider, created_at, updated_at)
 VALUES (
     'admin_default',
     'admin@earnlayer.com',

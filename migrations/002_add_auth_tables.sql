@@ -1,8 +1,11 @@
 -- Migration 002: Add Authentication Tables
 -- Purpose: Add Better Auth and Frontend Auth tables
 
--- Create new auth users table (text-based IDs for OAuth)
-CREATE TABLE IF NOT EXISTS public.users (
+-- IMPORTANT: The old schema already has a users table with UUID IDs
+-- We keep it intact and create new auth tables with different names
+
+-- Create auth_users table for OAuth (Better Auth)
+CREATE TABLE IF NOT EXISTS public.auth_users (
     id text PRIMARY KEY,
     email text NOT NULL UNIQUE,
     name text NOT NULL,
@@ -18,7 +21,7 @@ CREATE TABLE IF NOT EXISTS public.account (
     id text PRIMARY KEY,
     account_id text NOT NULL,
     provider_id text NOT NULL,
-    user_id text NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    user_id text NOT NULL REFERENCES public.auth_users(id) ON DELETE CASCADE,
     access_token text,
     refresh_token text,
     id_token text,
@@ -39,7 +42,7 @@ CREATE TABLE IF NOT EXISTS public.session (
     updated_at timestamp without time zone DEFAULT now() NOT NULL,
     ip_address text,
     user_agent text,
-    user_id text NOT NULL REFERENCES public.users(id) ON DELETE CASCADE
+    user_id text NOT NULL REFERENCES public.auth_users(id) ON DELETE CASCADE
 );
 
 -- Create legacy user table (Better Auth compatibility)

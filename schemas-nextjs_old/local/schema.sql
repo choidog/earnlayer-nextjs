@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
--- Dumped from database version 16.10 (Debian 16.10-1.pgdg12+1)
+-- Dumped from database version 17.5
 -- Dumped by pg_dump version 17.5
 
 SET statement_timeout = 0;
@@ -16,38 +16,6 @@ SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
-
---
--- Name: drizzle; Type: SCHEMA; Schema: -; Owner: postgres
---
-
-CREATE SCHEMA drizzle;
-
-
-ALTER SCHEMA drizzle OWNER TO postgres;
-
---
--- Name: SCHEMA drizzle; Type: COMMENT; Schema: -; Owner: postgres
---
-
-COMMENT ON SCHEMA drizzle IS 'Schema for Drizzle ORM migration tracking';
-
-
---
--- Name: public; Type: SCHEMA; Schema: -; Owner: postgres
---
-
--- *not* creating schema, since initdb creates it
-
-
-ALTER SCHEMA public OWNER TO postgres;
-
---
--- Name: SCHEMA public; Type: COMMENT; Schema: -; Owner: postgres
---
-
-COMMENT ON SCHEMA public IS '';
-
 
 --
 -- Name: pgcrypto; Type: EXTENSION; Schema: -; Owner: -
@@ -157,20 +125,6 @@ CREATE TYPE public.pricing_model AS ENUM (
 
 
 ALTER TYPE public.pricing_model OWNER TO postgres;
-
---
--- Name: CAST (text AS public.ad_placement); Type: CAST; Schema: -; Owner: -
---
-
-CREATE CAST (text AS public.ad_placement) WITH INOUT AS IMPLICIT;
-
-
---
--- Name: CAST (text AS public.ad_type); Type: CAST; Schema: -; Owner: -
---
-
-CREATE CAST (text AS public.ad_type) WITH INOUT AS IMPLICIT;
-
 
 --
 -- Name: cleanup_inactive_sessions(); Type: FUNCTION; Schema: public; Owner: postgres
@@ -306,62 +260,6 @@ $$;
 ALTER FUNCTION public.refresh_effective_cpc_rates() OWNER TO postgres;
 
 --
--- Name: sync_ad_embedding_to_table(); Type: FUNCTION; Schema: public; Owner: postgres
---
-
-CREATE FUNCTION public.sync_ad_embedding_to_table() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-DECLARE
-    embedding_array float[];
-BEGIN
-    -- Only process if embedding changed and is not null
-    IF NEW.embedding IS DISTINCT FROM OLD.embedding AND NEW.embedding IS NOT NULL THEN
-        -- Try to parse the text as an array
-        BEGIN
-            -- Handle different text formats
-            IF NEW.embedding LIKE '[%]' THEN
-                -- JSON array format: [0.1, 0.2, ...]
-                embedding_array := ARRAY(
-                    SELECT unnest(string_to_array(
-                        regexp_replace(NEW.embedding, '[\[\]]', '', 'g'), 
-                        ','
-                    )::float[])
-                );
-            ELSIF NEW.embedding LIKE '{%}' THEN
-                -- PostgreSQL array format: {0.1,0.2,...}
-                embedding_array := NEW.embedding::float[];
-            END IF;
-            
-            -- Insert or update in embeddings table
-            INSERT INTO public.embeddings (source_table, source_id, embedding, chunk_id)
-            VALUES ('ads', NEW.id, embedding_array::vector, 0)
-            ON CONFLICT (source_table, source_id, chunk_id) 
-            DO UPDATE SET 
-                embedding = EXCLUDED.embedding,
-                created_at = now();
-                
-        EXCEPTION WHEN OTHERS THEN
-            -- Log error but don't fail the transaction
-            RAISE WARNING 'Could not parse embedding for ad %: %', NEW.id, SQLERRM;
-        END;
-    END IF;
-    
-    RETURN NEW;
-END;
-$$;
-
-
-ALTER FUNCTION public.sync_ad_embedding_to_table() OWNER TO postgres;
-
---
--- Name: FUNCTION sync_ad_embedding_to_table(); Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON FUNCTION public.sync_ad_embedding_to_table() IS 'Syncs text embeddings from ads table to proper vector format in embeddings table';
-
-
---
 -- Name: sync_campaign_spent_and_status(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -411,38 +309,6 @@ $$;
 
 
 ALTER FUNCTION public.trigger_refresh_effective_cpc_rates() OWNER TO postgres;
-
---
--- Name: trigger_set_updated_at(); Type: FUNCTION; Schema: public; Owner: postgres
---
-
-CREATE FUNCTION public.trigger_set_updated_at() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-BEGIN
-    NEW.updated_at = now();
-    RETURN NEW;
-END;
-$$;
-
-
-ALTER FUNCTION public.trigger_set_updated_at() OWNER TO postgres;
-
---
--- Name: update_api_keys_updated_at(); Type: FUNCTION; Schema: public; Owner: postgres
---
-
-CREATE FUNCTION public.update_api_keys_updated_at() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-BEGIN
-    NEW.updated_at = CURRENT_TIMESTAMP;
-    RETURN NEW;
-END;
-$$;
-
-
-ALTER FUNCTION public.update_api_keys_updated_at() OWNER TO postgres;
 
 --
 -- Name: update_updated_at_column(); Type: FUNCTION; Schema: public; Owner: postgres
@@ -506,78 +372,6 @@ ALTER FUNCTION public.validate_embeddings_source_fk() OWNER TO postgres;
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
-
---
--- Name: __drizzle_migrations; Type: TABLE; Schema: drizzle; Owner: postgres
---
-
-CREATE TABLE drizzle.__drizzle_migrations (
-    id integer NOT NULL,
-    hash text NOT NULL,
-    created_at bigint
-);
-
-
-ALTER TABLE drizzle.__drizzle_migrations OWNER TO postgres;
-
---
--- Name: TABLE __drizzle_migrations; Type: COMMENT; Schema: drizzle; Owner: postgres
---
-
-COMMENT ON TABLE drizzle.__drizzle_migrations IS 'Tracks applied database migrations';
-
-
---
--- Name: __drizzle_migrations_id_seq; Type: SEQUENCE; Schema: drizzle; Owner: postgres
---
-
-CREATE SEQUENCE drizzle.__drizzle_migrations_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER SEQUENCE drizzle.__drizzle_migrations_id_seq OWNER TO postgres;
-
---
--- Name: __drizzle_migrations_id_seq; Type: SEQUENCE OWNED BY; Schema: drizzle; Owner: postgres
---
-
-ALTER SEQUENCE drizzle.__drizzle_migrations_id_seq OWNED BY drizzle.__drizzle_migrations.id;
-
-
---
--- Name: account; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.account (
-    id text NOT NULL,
-    account_id text NOT NULL,
-    provider_id text NOT NULL,
-    user_id text NOT NULL,
-    access_token text,
-    refresh_token text,
-    id_token text,
-    access_token_expires_at timestamp without time zone,
-    refresh_token_expires_at timestamp without time zone,
-    scope text,
-    password text,
-    created_at timestamp without time zone DEFAULT now() NOT NULL,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL
-);
-
-
-ALTER TABLE public.account OWNER TO postgres;
-
---
--- Name: TABLE account; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.account IS 'OAuth account linkages for users';
-
 
 --
 -- Name: account_role_values; Type: TABLE; Schema: public; Owner: postgres
@@ -687,13 +481,6 @@ CREATE TABLE public.ad_impressions (
 ALTER TABLE public.ad_impressions OWNER TO postgres;
 
 --
--- Name: COLUMN ad_impressions.mcp_tool_call_id; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.ad_impressions.mcp_tool_call_id IS 'MCP tool call tracking ID';
-
-
---
 -- Name: ad_queue; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -706,6 +493,7 @@ CREATE TABLE public.ad_queue (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     times_served integer DEFAULT 0 NOT NULL,
     initial_similarity numeric(10,8) NOT NULL,
+    mcp_tool_call_id uuid,
     CONSTRAINT ad_queue_ad_type_check CHECK ((ad_type = ANY (ARRAY['popup'::text, 'thinking'::text, 'banner'::text, 'video'::text]))),
     CONSTRAINT ad_queue_placement_check CHECK ((placement = ANY (ARRAY['sidebar'::text, 'modal'::text, 'inline'::text, 'overlay'::text, 'header'::text, 'footer'::text, 'default'::text])))
 );
@@ -735,35 +523,6 @@ COMMENT ON CONSTRAINT ad_queue_placement_check ON public.ad_queue IS 'Ensures pl
 
 
 --
--- Name: admin_sessions; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.admin_sessions (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    session_id character varying(128) NOT NULL,
-    expires_at timestamp with time zone NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    ip_address character varying(45)
-);
-
-
-ALTER TABLE public.admin_sessions OWNER TO postgres;
-
---
--- Name: TABLE admin_sessions; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.admin_sessions IS 'Admin authentication sessions';
-
-
---
--- Name: COLUMN admin_sessions.ip_address; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.admin_sessions.ip_address IS 'IPv4 or IPv6 address of admin user';
-
-
---
 -- Name: ads; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -782,11 +541,6 @@ CREATE TABLE public.ads (
     image_url character varying(255),
     needs_description boolean DEFAULT false NOT NULL,
     estimated_epc numeric(14,6) DEFAULT 0.00,
-    placement public.ad_placement DEFAULT 'default'::public.ad_placement,
-    bid_amount numeric(14,6),
-    target_url character varying(255),
-    content text,
-    embedding text,
     CONSTRAINT banner_ads_image_required CHECK (((ad_type <> 'banner'::public.ad_type) OR (image_url IS NOT NULL)))
 );
 
@@ -805,20 +559,6 @@ COMMENT ON COLUMN public.ads.needs_description IS 'Whether the frontend should d
 --
 
 COMMENT ON COLUMN public.ads.estimated_epc IS 'Estimated earnings per click for this ad in USD';
-
-
---
--- Name: COLUMN ads.placement; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.ads.placement IS 'Where the ad should be displayed';
-
-
---
--- Name: COLUMN ads.bid_amount; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.ads.bid_amount IS 'Bid amount for competitive ad placement';
 
 
 --
@@ -870,267 +610,6 @@ CREATE TABLE public.advertisers (
 ALTER TABLE public.advertisers OWNER TO postgres;
 
 --
--- Name: agreement_banner_dismissals; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.agreement_banner_dismissals (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    user_id text NOT NULL,
-    banner_version_id uuid NOT NULL,
-    dismissed_at timestamp with time zone DEFAULT now() NOT NULL,
-    ip_address text,
-    user_agent text
-);
-
-
-ALTER TABLE public.agreement_banner_dismissals OWNER TO postgres;
-
---
--- Name: TABLE agreement_banner_dismissals; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.agreement_banner_dismissals IS 'Tracks when users dismiss agreement update banners';
-
-
---
--- Name: agreement_versions; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.agreement_versions (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    version_string character varying(50) NOT NULL,
-    content_hash character varying(64) NOT NULL,
-    content_text text NOT NULL,
-    is_active boolean DEFAULT true,
-    effective_date timestamp with time zone NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    created_by text,
-    change_summary text
-);
-
-
-ALTER TABLE public.agreement_versions OWNER TO postgres;
-
---
--- Name: TABLE agreement_versions; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.agreement_versions IS 'Tracks different versions of user agreements';
-
-
---
--- Name: COLUMN agreement_versions.content_hash; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.agreement_versions.content_hash IS 'SHA256 hash of content_text for integrity verification';
-
-
---
--- Name: COLUMN agreement_versions.is_active; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.agreement_versions.is_active IS 'Whether this is the current active agreement version';
-
-
---
--- Name: api_key_usage; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.api_key_usage (
-    id text NOT NULL,
-    api_key_id text NOT NULL,
-    endpoint text NOT NULL,
-    method text NOT NULL,
-    status_code integer NOT NULL,
-    response_time integer,
-    ip_address text,
-    user_agent text,
-    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
-);
-
-
-ALTER TABLE public.api_key_usage OWNER TO postgres;
-
---
--- Name: TABLE api_key_usage; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.api_key_usage IS 'Tracks API key usage for analytics and rate limiting';
-
-
---
--- Name: api_keys; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.api_keys (
-    id text NOT NULL,
-    name text NOT NULL,
-    key text NOT NULL,
-    user_id text NOT NULL,
-    permissions jsonb DEFAULT '{}'::jsonb NOT NULL,
-    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
-    rate_limit jsonb DEFAULT '{}'::jsonb NOT NULL,
-    last_used_at timestamp without time zone,
-    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
-);
-
-
-ALTER TABLE public.api_keys OWNER TO postgres;
-
---
--- Name: TABLE api_keys; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.api_keys IS 'Modern API key management with permissions and rate limiting';
-
-
---
--- Name: COLUMN api_keys.permissions; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.api_keys.permissions IS 'JSON object defining API key permissions';
-
-
---
--- Name: COLUMN api_keys.metadata; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.api_keys.metadata IS 'Additional metadata for the API key';
-
-
---
--- Name: COLUMN api_keys.rate_limit; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.api_keys.rate_limit IS 'JSON object defining rate limit configuration';
-
-
---
--- Name: api_logs; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.api_logs (
-    id integer NOT NULL,
-    "timestamp" timestamp with time zone DEFAULT now() NOT NULL,
-    level character varying(20) NOT NULL,
-    endpoint character varying(500) NOT NULL,
-    method character varying(10),
-    message text NOT NULL,
-    details jsonb,
-    request_id character varying(100),
-    status_code integer,
-    duration integer,
-    user_id character varying(100),
-    ip_address inet,
-    user_agent text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT check_api_logs_level CHECK (((level)::text = ANY ((ARRAY['DEBUG'::character varying, 'INFO'::character varying, 'WARN'::character varying, 'ERROR'::character varying, 'FATAL'::character varying])::text[])))
-);
-
-
-ALTER TABLE public.api_logs OWNER TO postgres;
-
---
--- Name: TABLE api_logs; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.api_logs IS 'Real-time API logging for debugging and monitoring';
-
-
---
--- Name: COLUMN api_logs.details; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.api_logs.details IS 'Additional structured data about the request/response';
-
-
---
--- Name: COLUMN api_logs.duration; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.api_logs.duration IS 'Request duration in milliseconds';
-
-
---
--- Name: api_logs_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
---
-
-CREATE SEQUENCE public.api_logs_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER SEQUENCE public.api_logs_id_seq OWNER TO postgres;
-
---
--- Name: api_logs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
---
-
-ALTER SEQUENCE public.api_logs_id_seq OWNED BY public.api_logs.id;
-
-
---
--- Name: apikey; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.apikey (
-    id text NOT NULL,
-    name text,
-    start text,
-    prefix text,
-    key text NOT NULL,
-    user_id text NOT NULL,
-    refill_interval integer,
-    refill_amount integer,
-    last_refill_at timestamp without time zone,
-    enabled boolean DEFAULT true,
-    rate_limit_enabled boolean DEFAULT true,
-    rate_limit_time_window integer DEFAULT 86400000,
-    rate_limit_max integer DEFAULT 10,
-    request_count integer DEFAULT 0,
-    remaining integer,
-    last_request timestamp without time zone,
-    expires_at timestamp without time zone,
-    created_at timestamp without time zone NOT NULL,
-    updated_at timestamp without time zone NOT NULL,
-    permissions text,
-    metadata text
-);
-
-
-ALTER TABLE public.apikey OWNER TO postgres;
-
---
--- Name: TABLE apikey; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.apikey IS 'Legacy API key table for backwards compatibility';
-
-
---
--- Name: auth_users; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.auth_users (
-    id text NOT NULL,
-    email text NOT NULL,
-    name text NOT NULL,
-    picture text,
-    email_verified boolean DEFAULT false NOT NULL,
-    provider text DEFAULT 'google'::text NOT NULL,
-    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
-);
-
-
-ALTER TABLE public.auth_users OWNER TO postgres;
-
---
 -- Name: business_ad_type_preferences; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -1140,7 +619,7 @@ CREATE TABLE public.business_ad_type_preferences (
     ad_type character varying(20) NOT NULL,
     is_enabled boolean DEFAULT true,
     created_at timestamp with time zone DEFAULT now(),
-    CONSTRAINT business_ad_type_preferences_ad_type_check CHECK (((ad_type)::text = ANY (ARRAY[('text'::character varying)::text, ('banner'::character varying)::text, ('video'::character varying)::text, ('hyperlink'::character varying)::text, ('popup'::character varying)::text, ('thinking'::character varying)::text])))
+    CONSTRAINT business_ad_type_preferences_ad_type_check CHECK (((ad_type)::text = ANY ((ARRAY['text'::character varying, 'banner'::character varying, 'video'::character varying, 'hyperlink'::character varying, 'popup'::character varying, 'thinking'::character varying])::text[])))
 );
 
 
@@ -1156,7 +635,7 @@ CREATE TABLE public.business_category_preferences (
     category_id uuid NOT NULL,
     preference character varying(20) DEFAULT 'allowed'::character varying,
     created_at timestamp with time zone DEFAULT now(),
-    CONSTRAINT business_category_preferences_preference_check CHECK (((preference)::text = ANY (ARRAY[('preferred'::character varying)::text, ('allowed'::character varying)::text, ('blocked'::character varying)::text])))
+    CONSTRAINT business_category_preferences_preference_check CHECK (((preference)::text = ANY ((ARRAY['preferred'::character varying, 'allowed'::character varying, 'blocked'::character varying])::text[])))
 );
 
 
@@ -1171,12 +650,12 @@ CREATE TABLE public.business_settings (
     creator_id uuid NOT NULL,
     ad_frequency character varying(20) DEFAULT 'normal'::character varying,
     revenue_vs_relevance numeric(3,2) DEFAULT 0.5,
-    min_seconds_between_display_ads numeric DEFAULT 30,
+    min_seconds_between_display_ads integer DEFAULT 30,
     display_ad_similarity_threshold numeric(3,2) DEFAULT 0.25,
     is_active boolean DEFAULT true,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
-    CONSTRAINT business_settings_ad_frequency_check CHECK (((ad_frequency)::text = ANY (ARRAY[('low'::character varying)::text, ('normal'::character varying)::text, ('high'::character varying)::text]))),
+    CONSTRAINT business_settings_ad_frequency_check CHECK (((ad_frequency)::text = ANY ((ARRAY['low'::character varying, 'normal'::character varying, 'high'::character varying])::text[]))),
     CONSTRAINT business_settings_revenue_vs_relevance_check CHECK (((revenue_vs_relevance >= 0.0) AND (revenue_vs_relevance <= 1.0)))
 );
 
@@ -1220,21 +699,12 @@ CREATE TABLE public.chat_messages (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     session_id uuid,
     message text NOT NULL,
-    created_at timestamp with time zone DEFAULT now(),
-    content text,
-    role character varying(20) NOT NULL,
-    CONSTRAINT check_chat_messages_role CHECK (((role)::text = ANY ((ARRAY['user'::character varying, 'assistant'::character varying, 'system'::character varying])::text[])))
+    is_user boolean NOT NULL,
+    created_at timestamp with time zone DEFAULT now()
 );
 
 
 ALTER TABLE public.chat_messages OWNER TO postgres;
-
---
--- Name: COLUMN chat_messages.role; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.chat_messages.role IS 'Message sender role: user, assistant, or system';
-
 
 --
 -- Name: chat_sessions; Type: TABLE; Schema: public; Owner: postgres
@@ -1253,9 +723,9 @@ CREATE TABLE public.chat_sessions (
     revenue_vs_relevance numeric(3,2),
     display_ad_similarity_threshold numeric(3,2),
     min_seconds_between_display_ads integer,
-    CONSTRAINT chat_sessions_ad_frequency_check CHECK (((ad_frequency)::text = ANY (ARRAY[('low'::character varying)::text, ('normal'::character varying)::text, ('high'::character varying)::text]))),
+    CONSTRAINT chat_sessions_ad_frequency_check CHECK (((ad_frequency)::text = ANY ((ARRAY['low'::character varying, 'normal'::character varying, 'high'::character varying])::text[]))),
     CONSTRAINT chat_sessions_revenue_vs_relevance_check CHECK (((revenue_vs_relevance >= 0.0) AND (revenue_vs_relevance <= 1.0))),
-    CONSTRAINT chat_sessions_session_type_check CHECK (((session_type)::text = ANY (ARRAY[('mcp'::character varying)::text, ('direct_chat'::character varying)::text]))),
+    CONSTRAINT chat_sessions_session_type_check CHECK (((session_type)::text = ANY ((ARRAY['mcp'::character varying, 'direct_chat'::character varying])::text[]))),
     CONSTRAINT chk_sessions_dates CHECK (((ended_at IS NULL) OR (started_at < ended_at)))
 );
 
@@ -1424,46 +894,11 @@ CREATE TABLE public.creators (
     bio text,
     is_active boolean DEFAULT true,
     created_at timestamp with time zone DEFAULT now(),
-    updated_at timestamp with time zone DEFAULT now(),
-    auth_user_id text,
-    email character varying(255) NOT NULL,
-    approval_status character varying(20) DEFAULT 'pending'::character varying,
-    approval_date timestamp with time zone,
-    rejection_reason text,
-    permissions jsonb DEFAULT '[]'::jsonb,
-    last_approval_check timestamp with time zone DEFAULT now()
+    updated_at timestamp with time zone DEFAULT now()
 );
 
 
 ALTER TABLE public.creators OWNER TO postgres;
-
---
--- Name: COLUMN creators.user_id; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.creators.user_id IS 'Legacy link to original users table (UUID)';
-
-
---
--- Name: COLUMN creators.auth_user_id; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.creators.auth_user_id IS 'Link to Frontend Auth user (text ID)';
-
-
---
--- Name: COLUMN creators.approval_status; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.creators.approval_status IS 'Creator approval workflow status';
-
-
---
--- Name: COLUMN creators.permissions; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.creators.permissions IS 'JSON array of creator permissions';
-
 
 --
 -- Name: default_ad_relationship; Type: TABLE; Schema: public; Owner: postgres
@@ -1546,13 +981,6 @@ CREATE TABLE public.embeddings (
 ALTER TABLE public.embeddings OWNER TO postgres;
 
 --
--- Name: TABLE embeddings; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.embeddings IS 'Stores vector embeddings for ads and content - DO NOT DROP, required for similarity search';
-
-
---
 -- Name: impression_type_values; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -1562,6 +990,39 @@ CREATE TABLE public.impression_type_values (
 
 
 ALTER TABLE public.impression_type_values OWNER TO postgres;
+
+--
+-- Name: mcp_tool_call_queries; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.mcp_tool_call_queries (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    mcp_tool_call_id uuid,
+    query_text text NOT NULL,
+    query_order integer NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT mcp_tool_call_queries_query_order_check CHECK (((query_order >= 1) AND (query_order <= 3)))
+);
+
+
+ALTER TABLE public.mcp_tool_call_queries OWNER TO postgres;
+
+--
+-- Name: mcp_tool_calls; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.mcp_tool_calls (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    conversation_id uuid NOT NULL,
+    user_message text,
+    hyperlink_ads_returned integer DEFAULT 0,
+    display_ads_queued integer DEFAULT 0,
+    processing_time_ms integer,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+ALTER TABLE public.mcp_tool_calls OWNER TO postgres;
 
 --
 -- Name: message_ads; Type: TABLE; Schema: public; Owner: postgres
@@ -1639,31 +1100,6 @@ CREATE TABLE public.preference_status_values (
 ALTER TABLE public.preference_status_values OWNER TO postgres;
 
 --
--- Name: session; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.session (
-    id text NOT NULL,
-    expires_at timestamp without time zone NOT NULL,
-    token text NOT NULL,
-    created_at timestamp without time zone DEFAULT now() NOT NULL,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    ip_address text,
-    user_agent text,
-    user_id text NOT NULL
-);
-
-
-ALTER TABLE public.session OWNER TO postgres;
-
---
--- Name: TABLE session; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.session IS 'Active user sessions';
-
-
---
 -- Name: session_ad_type_overrides; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -1673,67 +1109,11 @@ CREATE TABLE public.session_ad_type_overrides (
     ad_type character varying(20) NOT NULL,
     is_enabled boolean DEFAULT true,
     created_at timestamp with time zone DEFAULT now(),
-    CONSTRAINT session_ad_type_overrides_ad_type_check CHECK (((ad_type)::text = ANY (ARRAY[('text'::character varying)::text, ('banner'::character varying)::text, ('video'::character varying)::text, ('hyperlink'::character varying)::text, ('popup'::character varying)::text, ('thinking'::character varying)::text])))
+    CONSTRAINT session_ad_type_overrides_ad_type_check CHECK (((ad_type)::text = ANY ((ARRAY['text'::character varying, 'banner'::character varying, 'video'::character varying, 'hyperlink'::character varying, 'popup'::character varying, 'thinking'::character varying])::text[])))
 );
 
 
 ALTER TABLE public.session_ad_type_overrides OWNER TO postgres;
-
---
--- Name: user; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public."user" (
-    id text NOT NULL,
-    name text NOT NULL,
-    email text NOT NULL,
-    email_verified boolean DEFAULT false NOT NULL,
-    image text,
-    created_at timestamp without time zone DEFAULT now() NOT NULL,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL
-);
-
-
-ALTER TABLE public."user" OWNER TO postgres;
-
---
--- Name: TABLE "user"; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public."user" IS 'Legacy Better Auth user table for compatibility';
-
-
---
--- Name: user_agreements; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.user_agreements (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    user_id text NOT NULL,
-    agreement_version_id uuid NOT NULL,
-    accepted_at timestamp with time zone DEFAULT now() NOT NULL,
-    ip_address text,
-    user_agent text,
-    acceptance_method character varying(50) DEFAULT 'clickwrap'::character varying,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
-ALTER TABLE public.user_agreements OWNER TO postgres;
-
---
--- Name: TABLE user_agreements; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.user_agreements IS 'Records user acceptance of specific agreement versions';
-
-
---
--- Name: COLUMN user_agreements.acceptance_method; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.user_agreements.acceptance_method IS 'How the user accepted (clickwrap, email, etc.)';
-
 
 --
 -- Name: user_roles; Type: TABLE; Schema: public; Owner: postgres
@@ -1764,217 +1144,6 @@ CREATE TABLE public.users (
 
 
 ALTER TABLE public.users OWNER TO postgres;
-
---
--- Name: TABLE users; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.users IS 'Frontend authentication users via OAuth providers';
-
-
---
--- Name: v_active_campaigns_ads; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.v_active_campaigns_ads AS
- SELECT ac.id AS campaign_id,
-    ac.name AS campaign_name,
-    ac.advertiser_id,
-    ac.budget_amount,
-    ac.spent_amount,
-    ac.start_date,
-    ac.end_date,
-    ac.status AS campaign_status,
-    a.id AS ad_id,
-    a.title,
-    a.content,
-    a.target_url,
-    a.ad_type,
-    a.placement,
-    a.pricing_model,
-    a.status AS ad_status
-   FROM (public.ad_campaigns ac
-     JOIN public.ads a ON ((a.campaign_id = ac.id)))
-  WHERE ((ac.status = 'active'::public.campaign_status) AND (a.status = 'active'::public.ad_status) AND (ac.end_date > now()) AND ((ac.spent_amount)::numeric < (ac.budget_amount)::numeric));
-
-
-ALTER VIEW public.v_active_campaigns_ads OWNER TO postgres;
-
---
--- Name: VIEW v_active_campaigns_ads; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.v_active_campaigns_ads IS 'Active campaigns with their associated active ads';
-
-
---
--- Name: v_ads_with_embeddings; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.v_ads_with_embeddings AS
- SELECT a.id,
-    a.campaign_id,
-    a.title,
-    a.description,
-    a.url,
-    a.created_at,
-    a.updated_at,
-    a.deleted_at,
-    a.ad_type,
-    a.pricing_model,
-    a.status,
-    a.image_url,
-    a.needs_description,
-    a.estimated_epc,
-    a.placement,
-    a.bid_amount,
-    a.target_url,
-    a.content,
-    a.embedding,
-    (e.embedding)::text AS embedding_text,
-    e.embedding AS embedding_vector
-   FROM (public.ads a
-     LEFT JOIN public.embeddings e ON (((e.source_id = a.id) AND (e.source_table = 'ads'::text) AND (e.chunk_id = 0))));
-
-
-ALTER VIEW public.v_ads_with_embeddings OWNER TO postgres;
-
---
--- Name: VIEW v_ads_with_embeddings; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.v_ads_with_embeddings IS 'Compatibility view showing ads with their embeddings from embeddings table';
-
-
---
--- Name: v_users; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.v_users AS
- SELECT id,
-    email,
-    name,
-    picture,
-    email_verified,
-    provider,
-    created_at,
-    updated_at
-   FROM public.auth_users;
-
-
-ALTER VIEW public.v_users OWNER TO postgres;
-
---
--- Name: VIEW v_users; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.v_users IS 'Compatibility view mapping auth_users to users interface';
-
-
---
--- Name: v_users_with_creators; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.v_users_with_creators AS
- SELECT au.id AS user_id,
-    au.email,
-    au.name AS user_name,
-    au.picture,
-    au.email_verified,
-    au.provider,
-    c.id AS creator_id,
-    c.name AS creator_name,
-    c.bio,
-    c.is_active,
-    c.approval_status,
-    c.approval_date,
-    c.permissions,
-    c.user_id AS legacy_user_id
-   FROM (public.auth_users au
-     LEFT JOIN public.creators c ON ((c.auth_user_id = au.id)));
-
-
-ALTER VIEW public.v_users_with_creators OWNER TO postgres;
-
---
--- Name: VIEW v_users_with_creators; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON VIEW public.v_users_with_creators IS 'Combined view of users and their creator profiles';
-
-
---
--- Name: verification; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.verification (
-    id text NOT NULL,
-    identifier text NOT NULL,
-    value text NOT NULL,
-    expires_at timestamp without time zone NOT NULL,
-    created_at timestamp without time zone DEFAULT now(),
-    updated_at timestamp without time zone DEFAULT now() NOT NULL
-);
-
-
-ALTER TABLE public.verification OWNER TO postgres;
-
---
--- Name: TABLE verification; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.verification IS 'Email/account verification tracking';
-
-
---
--- Name: verification_token; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.verification_token (
-    identifier text NOT NULL,
-    token text NOT NULL,
-    expires timestamp without time zone NOT NULL
-);
-
-
-ALTER TABLE public.verification_token OWNER TO postgres;
-
---
--- Name: TABLE verification_token; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON TABLE public.verification_token IS 'Verification tokens for account activation';
-
-
---
--- Name: __drizzle_migrations id; Type: DEFAULT; Schema: drizzle; Owner: postgres
---
-
-ALTER TABLE ONLY drizzle.__drizzle_migrations ALTER COLUMN id SET DEFAULT nextval('drizzle.__drizzle_migrations_id_seq'::regclass);
-
-
---
--- Name: api_logs id; Type: DEFAULT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.api_logs ALTER COLUMN id SET DEFAULT nextval('public.api_logs_id_seq'::regclass);
-
-
---
--- Name: __drizzle_migrations __drizzle_migrations_pkey; Type: CONSTRAINT; Schema: drizzle; Owner: postgres
---
-
-ALTER TABLE ONLY drizzle.__drizzle_migrations
-    ADD CONSTRAINT __drizzle_migrations_pkey PRIMARY KEY (id);
-
-
---
--- Name: account account_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.account
-    ADD CONSTRAINT account_pkey PRIMARY KEY (id);
-
 
 --
 -- Name: account_role_values account_role_values_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
@@ -2041,22 +1210,6 @@ ALTER TABLE ONLY public.ad_queue
 
 
 --
--- Name: admin_sessions admin_sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.admin_sessions
-    ADD CONSTRAINT admin_sessions_pkey PRIMARY KEY (id);
-
-
---
--- Name: admin_sessions admin_sessions_session_id_key; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.admin_sessions
-    ADD CONSTRAINT admin_sessions_session_id_key UNIQUE (session_id);
-
-
---
 -- Name: ads ads_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -2086,94 +1239,6 @@ ALTER TABLE ONLY public.advertiser_status_values
 
 ALTER TABLE ONLY public.advertisers
     ADD CONSTRAINT advertisers_pkey PRIMARY KEY (id);
-
-
---
--- Name: agreement_banner_dismissals agreement_banner_dismissals_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.agreement_banner_dismissals
-    ADD CONSTRAINT agreement_banner_dismissals_pkey PRIMARY KEY (id);
-
-
---
--- Name: agreement_versions agreement_versions_content_hash_key; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.agreement_versions
-    ADD CONSTRAINT agreement_versions_content_hash_key UNIQUE (content_hash);
-
-
---
--- Name: agreement_versions agreement_versions_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.agreement_versions
-    ADD CONSTRAINT agreement_versions_pkey PRIMARY KEY (id);
-
-
---
--- Name: agreement_versions agreement_versions_version_string_key; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.agreement_versions
-    ADD CONSTRAINT agreement_versions_version_string_key UNIQUE (version_string);
-
-
---
--- Name: api_key_usage api_key_usage_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.api_key_usage
-    ADD CONSTRAINT api_key_usage_pkey PRIMARY KEY (id);
-
-
---
--- Name: api_keys api_keys_key_key; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.api_keys
-    ADD CONSTRAINT api_keys_key_key UNIQUE (key);
-
-
---
--- Name: api_keys api_keys_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.api_keys
-    ADD CONSTRAINT api_keys_pkey PRIMARY KEY (id);
-
-
---
--- Name: api_logs api_logs_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.api_logs
-    ADD CONSTRAINT api_logs_pkey PRIMARY KEY (id);
-
-
---
--- Name: apikey apikey_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.apikey
-    ADD CONSTRAINT apikey_pkey PRIMARY KEY (id);
-
-
---
--- Name: auth_users auth_users_email_key; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.auth_users
-    ADD CONSTRAINT auth_users_email_key UNIQUE (email);
-
-
---
--- Name: auth_users auth_users_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.auth_users
-    ADD CONSTRAINT auth_users_pkey PRIMARY KEY (id);
 
 
 --
@@ -2329,14 +1394,6 @@ ALTER TABLE ONLY public.creator_settings
 
 
 --
--- Name: creators creators_email_unique; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.creators
-    ADD CONSTRAINT creators_email_unique UNIQUE (email);
-
-
---
 -- Name: creators creators_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -2392,19 +1449,35 @@ ALTER TABLE ONLY public.embeddings
 
 
 --
--- Name: embeddings embeddings_source_unique; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.embeddings
-    ADD CONSTRAINT embeddings_source_unique UNIQUE (source_table, source_id, chunk_id);
-
-
---
 -- Name: impression_type_values impression_type_values_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.impression_type_values
     ADD CONSTRAINT impression_type_values_pkey PRIMARY KEY (value);
+
+
+--
+-- Name: mcp_tool_call_queries mcp_tool_call_queries_mcp_tool_call_id_query_order_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.mcp_tool_call_queries
+    ADD CONSTRAINT mcp_tool_call_queries_mcp_tool_call_id_query_order_key UNIQUE (mcp_tool_call_id, query_order);
+
+
+--
+-- Name: mcp_tool_call_queries mcp_tool_call_queries_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.mcp_tool_call_queries
+    ADD CONSTRAINT mcp_tool_call_queries_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: mcp_tool_calls mcp_tool_calls_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.mcp_tool_calls
+    ADD CONSTRAINT mcp_tool_calls_pkey PRIMARY KEY (id);
 
 
 --
@@ -2480,54 +1553,6 @@ ALTER TABLE ONLY public.session_ad_type_overrides
 
 
 --
--- Name: session session_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.session
-    ADD CONSTRAINT session_pkey PRIMARY KEY (id);
-
-
---
--- Name: session session_token_key; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.session
-    ADD CONSTRAINT session_token_key UNIQUE (token);
-
-
---
--- Name: user_agreements user_agreements_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.user_agreements
-    ADD CONSTRAINT user_agreements_pkey PRIMARY KEY (id);
-
-
---
--- Name: user_agreements user_agreements_user_id_agreement_version_id_key; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.user_agreements
-    ADD CONSTRAINT user_agreements_user_id_agreement_version_id_key UNIQUE (user_id, agreement_version_id);
-
-
---
--- Name: user user_email_key; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public."user"
-    ADD CONSTRAINT user_email_key UNIQUE (email);
-
-
---
--- Name: user user_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public."user"
-    ADD CONSTRAINT user_pkey PRIMARY KEY (id);
-
-
---
 -- Name: user_roles user_roles_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -2541,22 +1566,6 @@ ALTER TABLE ONLY public.user_roles
 
 ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_pkey PRIMARY KEY (id);
-
-
---
--- Name: verification verification_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.verification
-    ADD CONSTRAINT verification_pkey PRIMARY KEY (id);
-
-
---
--- Name: verification_token verification_token_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.verification_token
-    ADD CONSTRAINT verification_token_pkey PRIMARY KEY (identifier, token);
 
 
 --
@@ -2623,31 +1632,10 @@ CREATE INDEX default_ad_global_lookup_idx ON public.default_ad_relationship USIN
 
 
 --
--- Name: idx_account_user_id; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_account_user_id ON public.account USING btree (user_id);
-
-
---
 -- Name: idx_ad_campaigns_advertiser_status; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_ad_campaigns_advertiser_status ON public.ad_campaigns USING btree (advertiser_id, status) WHERE (deleted_at IS NULL);
-
-
---
--- Name: idx_ad_campaigns_status; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_ad_campaigns_status ON public.ad_campaigns USING btree (status);
-
-
---
--- Name: idx_ad_campaigns_status_dates; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_ad_campaigns_status_dates ON public.ad_campaigns USING btree (status, start_date, end_date);
 
 
 --
@@ -2693,13 +1681,6 @@ CREATE INDEX idx_ad_impressions_ad ON public.ad_impressions USING btree (ad_id);
 
 
 --
--- Name: idx_ad_impressions_created_at; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_ad_impressions_created_at ON public.ad_impressions USING btree (created_at);
-
-
---
 -- Name: idx_ad_impressions_creator; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -2714,59 +1695,10 @@ CREATE INDEX idx_ad_impressions_creator_created ON public.ad_impressions USING b
 
 
 --
--- Name: idx_ad_impressions_mcp_tool_call_id; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_ad_impressions_mcp_tool_call_id ON public.ad_impressions USING btree (mcp_tool_call_id);
-
-
---
--- Name: idx_admin_sessions_expires_at; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_admin_sessions_expires_at ON public.admin_sessions USING btree (expires_at);
-
-
---
--- Name: idx_admin_sessions_session_id; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_admin_sessions_session_id ON public.admin_sessions USING btree (session_id);
-
-
---
--- Name: idx_ads_ad_type; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_ads_ad_type ON public.ads USING btree (ad_type);
-
-
---
 -- Name: idx_ads_campaign; Type: INDEX; Schema: public; Owner: postgres
 --
 
 CREATE INDEX idx_ads_campaign ON public.ads USING btree (campaign_id) WHERE (deleted_at IS NULL);
-
-
---
--- Name: idx_ads_campaign_id_status; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_ads_campaign_id_status ON public.ads USING btree (campaign_id, status);
-
-
---
--- Name: idx_ads_placement; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_ads_placement ON public.ads USING btree (placement);
-
-
---
--- Name: idx_ads_status_campaign; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_ads_status_campaign ON public.ads USING btree (status, campaign_id);
 
 
 --
@@ -2788,104 +1720,6 @@ CREATE INDEX idx_advertiser_payments_campaign ON public.advertiser_payments USIN
 --
 
 CREATE INDEX idx_advertiser_payments_received ON public.advertiser_payments USING btree (received_at DESC);
-
-
---
--- Name: idx_agreement_banner_dismissals_user_id; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_agreement_banner_dismissals_user_id ON public.agreement_banner_dismissals USING btree (user_id);
-
-
---
--- Name: idx_agreement_versions_active; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_agreement_versions_active ON public.agreement_versions USING btree (is_active) WHERE (is_active = true);
-
-
---
--- Name: idx_agreement_versions_effective_date; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_agreement_versions_effective_date ON public.agreement_versions USING btree (effective_date);
-
-
---
--- Name: idx_api_key_usage_api_key_id; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_api_key_usage_api_key_id ON public.api_key_usage USING btree (api_key_id);
-
-
---
--- Name: idx_api_key_usage_created_at; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_api_key_usage_created_at ON public.api_key_usage USING btree (created_at);
-
-
---
--- Name: idx_api_keys_key; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_api_keys_key ON public.api_keys USING btree (key);
-
-
---
--- Name: idx_api_keys_last_used; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_api_keys_last_used ON public.api_keys USING btree (last_used_at);
-
-
---
--- Name: idx_api_keys_user_id; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_api_keys_user_id ON public.api_keys USING btree (user_id);
-
-
---
--- Name: idx_api_logs_created_at; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_api_logs_created_at ON public.api_logs USING btree (created_at);
-
-
---
--- Name: idx_api_logs_endpoint; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_api_logs_endpoint ON public.api_logs USING btree (endpoint);
-
-
---
--- Name: idx_api_logs_status_code; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_api_logs_status_code ON public.api_logs USING btree (status_code);
-
-
---
--- Name: idx_api_logs_timestamp; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_api_logs_timestamp ON public.api_logs USING btree ("timestamp");
-
-
---
--- Name: idx_api_logs_user_id; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_api_logs_user_id ON public.api_logs USING btree (user_id);
-
-
---
--- Name: idx_apikey_user_id; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_apikey_user_id ON public.apikey USING btree (user_id);
 
 
 --
@@ -2952,13 +1786,6 @@ CREATE INDEX idx_chat_messages_session_created ON public.chat_messages USING btr
 
 
 --
--- Name: idx_chat_messages_session_id; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_chat_messages_session_id ON public.chat_messages USING btree (session_id);
-
-
---
 -- Name: idx_chat_sessions_active; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -2970,13 +1797,6 @@ CREATE INDEX idx_chat_sessions_active ON public.chat_sessions USING btree (creat
 --
 
 CREATE INDEX idx_chat_sessions_creator_activity ON public.chat_sessions USING btree (creator_id, last_activity_at);
-
-
---
--- Name: idx_chat_sessions_creator_id; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_chat_sessions_creator_id ON public.chat_sessions USING btree (creator_id);
 
 
 --
@@ -3099,27 +1919,6 @@ CREATE INDEX idx_creator_settings_creator ON public.creator_settings USING btree
 
 
 --
--- Name: idx_creators_approval_status; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_creators_approval_status ON public.creators USING btree (approval_status);
-
-
---
--- Name: idx_creators_auth_user_id; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_creators_auth_user_id ON public.creators USING btree (auth_user_id);
-
-
---
--- Name: idx_creators_email; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_creators_email ON public.creators USING btree (email);
-
-
---
 -- Name: idx_embeddings_ann; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -3134,10 +1933,24 @@ CREATE INDEX idx_embeddings_embedding ON public.embeddings USING ivfflat (embedd
 
 
 --
--- Name: idx_embeddings_source; Type: INDEX; Schema: public; Owner: postgres
+-- Name: idx_mcp_tool_call_queries_tool_call_id; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX idx_embeddings_source ON public.embeddings USING btree (source_table, source_id, chunk_id);
+CREATE INDEX idx_mcp_tool_call_queries_tool_call_id ON public.mcp_tool_call_queries USING btree (mcp_tool_call_id);
+
+
+--
+-- Name: idx_mcp_tool_calls_conversation_id; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_mcp_tool_calls_conversation_id ON public.mcp_tool_calls USING btree (conversation_id);
+
+
+--
+-- Name: idx_mcp_tool_calls_created_at; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_mcp_tool_calls_created_at ON public.mcp_tool_calls USING btree (created_at);
 
 
 --
@@ -3190,41 +2003,6 @@ CREATE INDEX idx_session_ad_type_overrides_session_id ON public.session_ad_type_
 
 
 --
--- Name: idx_session_expires; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_session_expires ON public.session USING btree (expires_at);
-
-
---
--- Name: idx_session_token; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_session_token ON public.session USING btree (token);
-
-
---
--- Name: idx_session_user_id; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_session_user_id ON public.session USING btree (user_id);
-
-
---
--- Name: idx_user_agreements_user_id; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_user_agreements_user_id ON public.user_agreements USING btree (user_id);
-
-
---
--- Name: idx_user_agreements_version_id; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX idx_user_agreements_version_id ON public.user_agreements USING btree (agreement_version_id);
-
-
---
 -- Name: idx_users_email; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -3243,62 +2021,6 @@ CREATE UNIQUE INDEX idx_users_email_active ON public.users USING btree (email) W
 --
 
 CREATE TRIGGER refresh_cpc_rates_on_creator_affiliate_codes AFTER INSERT OR DELETE OR UPDATE ON public.creator_affiliate_codes FOR EACH ROW EXECUTE FUNCTION public.trigger_refresh_effective_cpc_rates();
-
-
---
--- Name: ad_campaigns set_updated_at_ad_campaigns; Type: TRIGGER; Schema: public; Owner: postgres
---
-
-CREATE TRIGGER set_updated_at_ad_campaigns BEFORE UPDATE ON public.ad_campaigns FOR EACH ROW EXECUTE FUNCTION public.trigger_set_updated_at();
-
-
---
--- Name: ad_categories set_updated_at_ad_categories; Type: TRIGGER; Schema: public; Owner: postgres
---
-
-CREATE TRIGGER set_updated_at_ad_categories BEFORE UPDATE ON public.ad_categories FOR EACH ROW WHEN ((old.* IS DISTINCT FROM new.*)) EXECUTE FUNCTION public.trigger_set_updated_at();
-
-
---
--- Name: ads set_updated_at_ads; Type: TRIGGER; Schema: public; Owner: postgres
---
-
-CREATE TRIGGER set_updated_at_ads BEFORE UPDATE ON public.ads FOR EACH ROW WHEN ((old.* IS DISTINCT FROM new.*)) EXECUTE FUNCTION public.trigger_set_updated_at();
-
-
---
--- Name: advertisers set_updated_at_advertisers; Type: TRIGGER; Schema: public; Owner: postgres
---
-
-CREATE TRIGGER set_updated_at_advertisers BEFORE UPDATE ON public.advertisers FOR EACH ROW WHEN ((old.* IS DISTINCT FROM new.*)) EXECUTE FUNCTION public.trigger_set_updated_at();
-
-
---
--- Name: business_settings set_updated_at_business_settings; Type: TRIGGER; Schema: public; Owner: postgres
---
-
-CREATE TRIGGER set_updated_at_business_settings BEFORE UPDATE ON public.business_settings FOR EACH ROW WHEN ((old.* IS DISTINCT FROM new.*)) EXECUTE FUNCTION public.trigger_set_updated_at();
-
-
---
--- Name: content set_updated_at_content; Type: TRIGGER; Schema: public; Owner: postgres
---
-
-CREATE TRIGGER set_updated_at_content BEFORE UPDATE ON public.content FOR EACH ROW WHEN ((old.* IS DISTINCT FROM new.*)) EXECUTE FUNCTION public.trigger_set_updated_at();
-
-
---
--- Name: creators set_updated_at_creators; Type: TRIGGER; Schema: public; Owner: postgres
---
-
-CREATE TRIGGER set_updated_at_creators BEFORE UPDATE ON public.creators FOR EACH ROW WHEN ((old.* IS DISTINCT FROM new.*)) EXECUTE FUNCTION public.trigger_set_updated_at();
-
-
---
--- Name: ads sync_ad_embedding_trigger; Type: TRIGGER; Schema: public; Owner: postgres
---
-
-CREATE TRIGGER sync_ad_embedding_trigger AFTER INSERT OR UPDATE ON public.ads FOR EACH ROW EXECUTE FUNCTION public.sync_ad_embedding_to_table();
 
 
 --
@@ -3348,13 +2070,6 @@ CREATE TRIGGER update_ads_updated_at BEFORE UPDATE ON public.ads FOR EACH ROW EX
 --
 
 CREATE TRIGGER update_advertisers_updated_at BEFORE UPDATE ON public.advertisers FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
-
---
--- Name: api_keys update_api_keys_updated_at_trigger; Type: TRIGGER; Schema: public; Owner: postgres
---
-
-CREATE TRIGGER update_api_keys_updated_at_trigger BEFORE UPDATE ON public.api_keys FOR EACH ROW EXECUTE FUNCTION public.update_api_keys_updated_at();
 
 
 --
@@ -3414,14 +2129,6 @@ CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON public.users FOR EACH RO
 
 
 --
--- Name: account account_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.account
-    ADD CONSTRAINT account_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.auth_users(id) ON DELETE CASCADE;
-
-
---
 -- Name: ad_campaigns ad_campaigns_advertiser_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -3478,6 +2185,14 @@ ALTER TABLE ONLY public.ad_impressions
 
 
 --
+-- Name: ad_impressions ad_impressions_mcp_tool_call_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ad_impressions
+    ADD CONSTRAINT ad_impressions_mcp_tool_call_id_fkey FOREIGN KEY (mcp_tool_call_id) REFERENCES public.mcp_tool_calls(id);
+
+
+--
 -- Name: ad_impressions ad_impressions_message_ad_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -3507,6 +2222,14 @@ ALTER TABLE ONLY public.ad_queue
 
 ALTER TABLE ONLY public.ad_queue
     ADD CONSTRAINT ad_queue_chat_session_id_fkey FOREIGN KEY (chat_session_id) REFERENCES public.chat_sessions(id) ON DELETE CASCADE;
+
+
+--
+-- Name: ad_queue ad_queue_mcp_tool_call_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ad_queue
+    ADD CONSTRAINT ad_queue_mcp_tool_call_id_fkey FOREIGN KEY (mcp_tool_call_id) REFERENCES public.mcp_tool_calls(id);
 
 
 --
@@ -3554,39 +2277,7 @@ ALTER TABLE ONLY public.advertisers
 --
 
 ALTER TABLE ONLY public.advertisers
-    ADD CONSTRAINT advertisers_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED;
-
-
---
--- Name: agreement_banner_dismissals agreement_banner_dismissals_banner_version_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.agreement_banner_dismissals
-    ADD CONSTRAINT agreement_banner_dismissals_banner_version_id_fkey FOREIGN KEY (banner_version_id) REFERENCES public.agreement_versions(id);
-
-
---
--- Name: agreement_banner_dismissals agreement_banner_dismissals_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.agreement_banner_dismissals
-    ADD CONSTRAINT agreement_banner_dismissals_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.auth_users(id) ON DELETE CASCADE;
-
-
---
--- Name: api_key_usage api_key_usage_api_key_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.api_key_usage
-    ADD CONSTRAINT api_key_usage_api_key_id_fkey FOREIGN KEY (api_key_id) REFERENCES public.api_keys(id) ON DELETE CASCADE;
-
-
---
--- Name: api_keys api_keys_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.api_keys
-    ADD CONSTRAINT api_keys_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.auth_users(id) ON DELETE CASCADE;
+    ADD CONSTRAINT advertisers_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
 
 --
@@ -3750,14 +2441,6 @@ ALTER TABLE ONLY public.creator_settings
 
 
 --
--- Name: creators creators_auth_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.creators
-    ADD CONSTRAINT creators_auth_user_id_fkey FOREIGN KEY (auth_user_id) REFERENCES public.auth_users(id);
-
-
---
 -- Name: creators creators_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -3787,6 +2470,22 @@ ALTER TABLE ONLY public.default_ad_relationship
 
 ALTER TABLE ONLY public.ad_impressions
     ADD CONSTRAINT fk_ad_impressions_queue FOREIGN KEY (ad_queue_session_id, ad_id, ad_queue_placement) REFERENCES public.ad_queue(chat_session_id, ad_id, placement) ON DELETE SET NULL;
+
+
+--
+-- Name: mcp_tool_call_queries mcp_tool_call_queries_mcp_tool_call_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.mcp_tool_call_queries
+    ADD CONSTRAINT mcp_tool_call_queries_mcp_tool_call_id_fkey FOREIGN KEY (mcp_tool_call_id) REFERENCES public.mcp_tool_calls(id) ON DELETE CASCADE;
+
+
+--
+-- Name: mcp_tool_calls mcp_tool_calls_conversation_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.mcp_tool_calls
+    ADD CONSTRAINT mcp_tool_calls_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.chat_sessions(id);
 
 
 --
@@ -3830,30 +2529,6 @@ ALTER TABLE ONLY public.session_ad_type_overrides
 
 
 --
--- Name: session session_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.session
-    ADD CONSTRAINT session_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.auth_users(id) ON DELETE CASCADE;
-
-
---
--- Name: user_agreements user_agreements_agreement_version_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.user_agreements
-    ADD CONSTRAINT user_agreements_agreement_version_id_fkey FOREIGN KEY (agreement_version_id) REFERENCES public.agreement_versions(id);
-
-
---
--- Name: user_agreements user_agreements_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.user_agreements
-    ADD CONSTRAINT user_agreements_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.auth_users(id) ON DELETE CASCADE;
-
-
---
 -- Name: user_roles user_roles_role_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -3867,14 +2542,6 @@ ALTER TABLE ONLY public.user_roles
 
 ALTER TABLE ONLY public.user_roles
     ADD CONSTRAINT user_roles_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-
---
--- Name: SCHEMA public; Type: ACL; Schema: -; Owner: postgres
---
-
-REVOKE USAGE ON SCHEMA public FROM PUBLIC;
-GRANT CREATE ON SCHEMA public TO PUBLIC;
 
 
 --

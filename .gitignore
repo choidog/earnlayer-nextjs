@@ -44,3 +44,5 @@ schemas/cloud/cloud_schema_w_data.sql
 schemas/local/schema_w_data.sql
 schemas-nextjs/cloud/cloud_schema_w_data.sql
 schemas-nextjs/local/schema_w_data.sql
+schemas-nextjs_old/cloud/cloud_schema_w_data.sql
+schemas-nextjs_old/local/schema_w_data.sql

@@ -1,24 +1,15 @@
 -- Trigger DDL for schema public
-CREATE TRIGGER set_updated_at_ad_campaigns BEFORE UPDATE ON ad_campaigns FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
 CREATE TRIGGER update_ad_campaigns_updated_at BEFORE UPDATE ON ad_campaigns FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER set_updated_at_ad_categories BEFORE UPDATE ON ad_categories FOR EACH ROW WHEN (old.* IS DISTINCT FROM new.*) EXECUTE FUNCTION trigger_set_updated_at();
 CREATE TRIGGER sync_campaign_spent_on_impression AFTER INSERT ON ad_impressions FOR EACH ROW EXECUTE FUNCTION sync_campaign_spent_and_status();
 CREATE TRIGGER update_ad_impressions_updated_at BEFORE UPDATE ON ad_impressions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER set_updated_at_ads BEFORE UPDATE ON ads FOR EACH ROW WHEN (old.* IS DISTINCT FROM new.*) EXECUTE FUNCTION trigger_set_updated_at();
-CREATE TRIGGER sync_ad_embedding_trigger AFTER INSERT OR UPDATE ON ads FOR EACH ROW EXECUTE FUNCTION sync_ad_embedding_to_table();
 CREATE CONSTRAINT TRIGGER trg_ads_campaign_active AFTER INSERT OR UPDATE OF status, campaign_id ON ads DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION enforce_campaign_active_for_ads();
 CREATE TRIGGER update_ads_updated_at BEFORE UPDATE ON ads FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER set_updated_at_advertisers BEFORE UPDATE ON advertisers FOR EACH ROW WHEN (old.* IS DISTINCT FROM new.*) EXECUTE FUNCTION trigger_set_updated_at();
 CREATE TRIGGER update_advertisers_updated_at BEFORE UPDATE ON advertisers FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_api_keys_updated_at_trigger BEFORE UPDATE ON api_keys FOR EACH ROW EXECUTE FUNCTION update_api_keys_updated_at();
-CREATE TRIGGER set_updated_at_business_settings BEFORE UPDATE ON business_settings FOR EACH ROW WHEN (old.* IS DISTINCT FROM new.*) EXECUTE FUNCTION trigger_set_updated_at();
-CREATE TRIGGER set_updated_at_content BEFORE UPDATE ON content FOR EACH ROW WHEN (old.* IS DISTINCT FROM new.*) EXECUTE FUNCTION trigger_set_updated_at();
 CREATE TRIGGER update_content_updated_at BEFORE UPDATE ON content FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER refresh_cpc_rates_on_creator_affiliate_codes AFTER INSERT OR DELETE OR UPDATE ON creator_affiliate_codes FOR EACH ROW EXECUTE FUNCTION trigger_refresh_effective_cpc_rates();
 CREATE TRIGGER update_creator_affiliate_codes_updated_at BEFORE UPDATE ON creator_affiliate_codes FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_creator_category_prefs_updated_at BEFORE UPDATE ON creator_category_preferences FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_creator_settings_updated_at BEFORE UPDATE ON creator_settings FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER set_updated_at_creators BEFORE UPDATE ON creators FOR EACH ROW WHEN (old.* IS DISTINCT FROM new.*) EXECUTE FUNCTION trigger_set_updated_at();
 CREATE TRIGGER update_creators_updated_at BEFORE UPDATE ON creators FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_default_ad_relationship_updated_at BEFORE UPDATE ON default_ad_relationship FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE CONSTRAINT TRIGGER trg_embeddings_source_fk AFTER INSERT OR UPDATE OF source_table, source_id ON embeddings DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION validate_embeddings_source_fk();

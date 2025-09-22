@@ -2,8 +2,9 @@
 -- Purpose: Update existing tables to match new schema requirements
 
 -- Modify creators table
+-- The user_id column already exists as UUID type, we need to add a new column for auth linkage
 ALTER TABLE public.creators 
-    ADD COLUMN IF NOT EXISTS user_id text,
+    ADD COLUMN IF NOT EXISTS auth_user_id text,
     ADD COLUMN IF NOT EXISTS email varchar(255),
     ADD COLUMN IF NOT EXISTS approval_status varchar(20) DEFAULT 'pending',
     ADD COLUMN IF NOT EXISTS approval_date timestamp with time zone,
@@ -24,58 +25,49 @@ BEGIN
     END IF;
 END $$;
 
--- Add foreign key to users table
+-- Add foreign key to auth_users table using the new column
 DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint 
-        WHERE conname = 'creators_user_id_fkey' 
+        WHERE conname = 'creators_auth_user_id_fkey' 
         AND conrelid = 'public.creators'::regclass
     ) THEN
         ALTER TABLE public.creators 
-        ADD CONSTRAINT creators_user_id_fkey 
-        FOREIGN KEY (user_id) REFERENCES public.users(id);
+        ADD CONSTRAINT creators_auth_user_id_fkey 
+        FOREIGN KEY (auth_user_id) REFERENCES public.auth_users(id);
     END IF;
 END $$;
 
 -- Modify ads table
--- Add new columns
+-- Add new columns that exist in new schema but not in old
 ALTER TABLE public.ads
     ADD COLUMN IF NOT EXISTS placement public.ad_placement DEFAULT 'default',
     ADD COLUMN IF NOT EXISTS bid_amount numeric(14,6),
-    ADD COLUMN IF NOT EXISTS target_url text,
+    ADD COLUMN IF NOT EXISTS target_url varchar(255),
     ADD COLUMN IF NOT EXISTS content text;
 
--- Create aliases for renamed columns (if they don't exist)
+-- Handle column mappings without breaking existing data
 DO $$
 BEGIN
-    -- If 'url' exists but 'target_url' doesn't, rename it
-    IF EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'ads' AND column_name = 'url'
-    ) AND NOT EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'ads' AND column_name = 'target_url'
-    ) THEN
-        ALTER TABLE public.ads RENAME COLUMN url TO target_url;
-    END IF;
+    -- Copy url to target_url if target_url is empty
+    UPDATE public.ads 
+    SET target_url = url 
+    WHERE target_url IS NULL AND url IS NOT NULL;
     
-    -- If 'description' exists but 'content' doesn't, rename it
-    IF EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'ads' AND column_name = 'description'
-    ) AND NOT EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'ads' AND column_name = 'content'
-    ) THEN
-        ALTER TABLE public.ads RENAME COLUMN description TO content;
-    END IF;
+    -- Copy description to content if content is empty
+    UPDATE public.ads 
+    SET content = description 
+    WHERE content IS NULL AND description IS NOT NULL;
 END $$;
 
--- Convert embedding column from vector to text
-ALTER TABLE public.ads 
-    ALTER COLUMN embedding TYPE text 
-    USING embedding::text;
+-- IMPORTANT: DO NOT convert embeddings to text - keep vector type!
+-- The old system uses embeddings table with proper vector type for similarity search
+
+-- Add embedding column to ads table if needed (for compatibility with new schema)
+-- But keep it as text for now since the actual vectors are in embeddings table
+ALTER TABLE public.ads
+    ADD COLUMN IF NOT EXISTS embedding text;
 
 -- Modify chat_messages table
 ALTER TABLE public.chat_messages
@@ -114,20 +106,8 @@ BEGIN
     END IF;
 END $$;
 
--- Convert chat_messages embedding to text
-DO $$
-BEGIN
-    IF EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'chat_messages' 
-        AND column_name = 'embedding'
-        AND udt_name = 'vector'
-    ) THEN
-        ALTER TABLE public.chat_messages 
-            ALTER COLUMN embedding TYPE text 
-            USING embedding::text;
-    END IF;
-END $$;
+-- DO NOT convert chat_messages embedding to text
+-- Keep the embeddings table structure intact for vector searches
 
 -- Modify ad_impressions table
 ALTER TABLE public.ad_impressions
@@ -144,13 +124,14 @@ ALTER TABLE public.chat_messages
     CHECK (role IN ('user', 'assistant', 'system'));
 
 -- Add indexes for new columns
-CREATE INDEX IF NOT EXISTS idx_creators_user_id ON public.creators(user_id);
+CREATE INDEX IF NOT EXISTS idx_creators_auth_user_id ON public.creators(auth_user_id);
 CREATE INDEX IF NOT EXISTS idx_creators_approval_status ON public.creators(approval_status);
 CREATE INDEX IF NOT EXISTS idx_ads_placement ON public.ads(placement);
 CREATE INDEX IF NOT EXISTS idx_ad_impressions_mcp_tool_call_id ON public.ad_impressions(mcp_tool_call_id);
 
 -- Add comments for new columns
-COMMENT ON COLUMN public.creators.user_id IS 'Link to Frontend Auth user';
+COMMENT ON COLUMN public.creators.auth_user_id IS 'Link to Frontend Auth user (text ID)';
+COMMENT ON COLUMN public.creators.user_id IS 'Legacy link to original users table (UUID)';
 COMMENT ON COLUMN public.creators.approval_status IS 'Creator approval workflow status';
 COMMENT ON COLUMN public.creators.permissions IS 'JSON array of creator permissions';
 COMMENT ON COLUMN public.ads.placement IS 'Where the ad should be displayed';

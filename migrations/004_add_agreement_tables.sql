@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS public.agreement_versions (
 -- Create user agreements acceptance table
 CREATE TABLE IF NOT EXISTS public.user_agreements (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    user_id text NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    user_id text NOT NULL REFERENCES public.auth_users(id) ON DELETE CASCADE,
     agreement_version_id uuid NOT NULL REFERENCES public.agreement_versions(id),
     accepted_at timestamp with time zone DEFAULT now() NOT NULL,
     ip_address text,
@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS public.user_agreements (
 -- Create agreement banner dismissals table
 CREATE TABLE IF NOT EXISTS public.agreement_banner_dismissals (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    user_id text NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    user_id text NOT NULL REFERENCES public.auth_users(id) ON DELETE CASCADE,
     banner_version_id uuid NOT NULL REFERENCES public.agreement_versions(id),
     dismissed_at timestamp with time zone DEFAULT now() NOT NULL,
     ip_address text,
